@@ -230,6 +230,28 @@ class OpenAIAdapter(ProviderAdapter):
         if request.temperature is not None:
             payload["temperature"] = request.temperature
 
+        if request.top_p is not None:
+            payload["top_p"] = request.top_p
+
+        if request.response_format:
+            fmt = request.response_format
+            if hasattr(fmt, 'type'):
+                fmt_type = fmt.type
+                fmt_schema = getattr(fmt, 'json_schema', None)
+            else:
+                fmt_type = fmt.get("type", "")
+                fmt_schema = fmt.get("json_schema")
+            if fmt_type == "json_object":
+                payload["text"] = {"format": {"type": "json_object"}}
+            elif fmt_type == "json_schema" and fmt_schema:
+                payload["text"] = {
+                    "format": {
+                        "type": "json_schema",
+                        "json_schema": fmt_schema,
+                        "strict": True,
+                    },
+                }
+
         if request.tools:
             payload["tools"] = [self._convert_tool(t) for t in request.tools]
 
@@ -382,6 +404,7 @@ class OpenAIAdapter(ProviderAdapter):
         return Response(
             id=raw.get("id", ""),
             model=raw.get("model", ""),
+            provider=self.name,
             content=content,
             usage=usage,
             finish_reason=finish,
@@ -454,11 +477,13 @@ class OpenAIAdapter(ProviderAdapter):
         etype = event_type or data.get("type", "")
 
         if etype == "response.output_text.delta":
+            text = data.get("delta", "")
             yield StreamEvent(
                 kind=StreamEventKind.CONTENT_DELTA,
+                data={"text": text},
                 content_part=ContentPart(
                     kind=ContentKind.TEXT,
-                    text=data.get("delta", ""),
+                    text=text,
                 ),
             )
 

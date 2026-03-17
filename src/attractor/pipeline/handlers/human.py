@@ -30,29 +30,49 @@ if TYPE_CHECKING:
 
 _ACCEL_PATTERN = re.compile(r"&(\w)")
 _BRACKET_PATTERN = re.compile(r"\[(\w)\]\s*(.*)")
+_PAREN_PATTERN = re.compile(r"(\w)\)\s*(.*)")
+_DASH_PATTERN = re.compile(r"(\w)\s*-\s+(.*)")
 
 
 def _parse_accelerator(label: str) -> tuple[str, str]:
     """Extract an accelerator key from a label.
 
-    Supports two formats:
-      - ``&Yes``  -> key='y', label='Yes'
+    Supports four formats:
       - ``[Y] Yes`` -> key='y', label='Yes'
+      - ``&Yes``    -> key='y', label='Yes'
+      - ``Y) Yes``  -> key='y', label='Yes'
+      - ``Y - Yes`` -> key='y', label='Yes'
 
     Returns (key, clean_label).
     """
-    # Try bracket format first: [Y] Yes
-    bm = _BRACKET_PATTERN.match(label.strip())
+    stripped = label.strip()
+
+    # Try bracket format: [Y] Yes
+    bm = _BRACKET_PATTERN.match(stripped)
     if bm:
         key = bm.group(1).lower()
         clean = bm.group(2).strip() or label
         return key, clean
 
     # Try ampersand format: &Yes
-    m = _ACCEL_PATTERN.search(label)
+    m = _ACCEL_PATTERN.search(stripped)
     if m:
         key = m.group(1).lower()
         clean = label.replace(f"&{m.group(1)}", m.group(1), 1)
+        return key, clean
+
+    # Try paren format: Y) Yes
+    pm = _PAREN_PATTERN.match(stripped)
+    if pm:
+        key = pm.group(1).lower()
+        clean = pm.group(2).strip() or label
+        return key, clean
+
+    # Try dash format: Y - Yes
+    dm = _DASH_PATTERN.match(stripped)
+    if dm:
+        key = dm.group(1).lower()
+        clean = dm.group(2).strip() or label
         return key, clean
 
     return label.lower().replace(" ", "_"), label

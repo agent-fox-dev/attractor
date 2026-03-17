@@ -201,3 +201,26 @@ def test_conversation_export_import():
     assert isinstance(session2.history[1], AssistantTurn)
     assert len(session2.history[1].tool_calls) == 1
     assert session2.history[1].tool_calls[0].name == "shell"
+
+
+def test_subagent_depth_limit():
+    """Subagent spawn_agent rejects when depth limit is reached."""
+    from attractor.agent.tools.subagent import _make_executors
+
+    called = False
+
+    def mock_factory(**kwargs):
+        nonlocal called
+        called = True
+
+    executors = _make_executors(mock_factory)
+    spawn = executors["spawn_agent"]
+
+    # Simulate env at max depth
+    env = LocalExecutionEnvironment()
+    env._parent_depth = 1
+    env._max_subagent_depth = 1
+
+    result = spawn({"task": "test task"}, env)
+    assert "depth limit" in result.lower()
+    assert not called  # Factory should not be called

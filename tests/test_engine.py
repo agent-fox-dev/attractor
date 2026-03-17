@@ -371,6 +371,81 @@ def test_manager_actions_attribute():
     assert outcome.status == StageStatus.SUCCESS
 
 
+def test_edge_selection_conditions_first():
+    """Condition-based edges take highest priority per spec Section 3.3."""
+    from attractor.pipeline.engine import select_edge
+    from attractor.pipeline.context import Context
+
+    graph = parse_dot("""
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        a [shape=box]
+        ok [shape=box]
+        fallback [shape=box]
+        start -> a -> ok [condition="status=success"]
+        a -> fallback
+    }
+    """)
+    ctx = Context()
+    ctx.set("status", "success")
+    outcome = Outcome(status=StageStatus.SUCCESS, suggested_next_ids=["fallback"])
+    # Condition should win over suggested_next_ids
+    edge = select_edge(graph.nodes["a"], outcome, ctx, graph)
+    assert edge is not None
+    assert edge.to_node == "ok"
+
+
+def test_label_normalization_strips_accelerators():
+    """Label normalization strips accelerator prefixes."""
+    from attractor.pipeline.engine import normalize_label
+
+    assert normalize_label("[Y] Yes") == "yes"
+    assert normalize_label("N) No") == "no"
+    assert normalize_label("Q - Quit") == "quit"
+    assert normalize_label("&Retry") == "retry"
+    assert normalize_label("plain_label") == "plain_label"
+
+
+def test_manifest_file_created():
+    """Pipeline run creates a manifest.json in logs_root."""
+    dot = """
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        start -> exit
+    }
+    """
+    import json
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config = PipelineConfig(logs_root=tmpdir)
+        runner = PipelineRunner()
+        runner.run(dot, config=config)
+        manifest_path = Path(tmpdir) / "manifest.json"
+        assert manifest_path.exists()
+        manifest = json.loads(manifest_path.read_text())
+        assert "start_time" in manifest
+        assert manifest["node_count"] >= 2
+
+
+def test_accelerator_paren_format():
+    """Human handler parses Y) Yes accelerator format."""
+    from attractor.pipeline.handlers.human import _parse_accelerator
+
+    key, label = _parse_accelerator("Y) Yes")
+    assert key == "y"
+    assert label == "Yes"
+
+
+def test_accelerator_dash_format():
+    """Human handler parses Y - Yes accelerator format."""
+    from attractor.pipeline.handlers.human import _parse_accelerator
+
+    key, label = _parse_accelerator("Q - Quit")
+    assert key == "q"
+    assert label == "Quit"
+
+
 def test_checkpoint_save_and_resume():
     dot = """
     digraph T {

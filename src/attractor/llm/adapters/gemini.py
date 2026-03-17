@@ -219,6 +219,8 @@ class GeminiAdapter(ProviderAdapter):
             gen_config["maxOutputTokens"] = request.max_tokens
         if request.temperature is not None:
             gen_config["temperature"] = request.temperature
+        if request.top_p is not None:
+            gen_config["topP"] = request.top_p
         if request.stop_sequences:
             gen_config["stopSequences"] = request.stop_sequences
         if request.response_format:
@@ -386,6 +388,7 @@ class GeminiAdapter(ProviderAdapter):
         return Response(
             id="",  # Gemini does not return a response id.
             model="",
+            provider=self.name,
             content=content,
             usage=usage,
             finish_reason=finish,
@@ -483,9 +486,11 @@ class GeminiAdapter(ProviderAdapter):
             if "text" in part and not part.get("thought"):
                 if not started:
                     yield StreamEvent(kind=StreamEventKind.CONTENT_START)
+                text = part["text"]
                 yield StreamEvent(
                     kind=StreamEventKind.CONTENT_DELTA,
-                    content_part=ContentPart(kind=ContentKind.TEXT, text=part["text"]),
+                    data={"text": text},
+                    content_part=ContentPart(kind=ContentKind.TEXT, text=text),
                 )
 
             elif "text" in part and part.get("thought"):

@@ -98,12 +98,24 @@ def is_terminal(node: Node) -> bool:
     return t == "exit"
 
 
+_ACCEL_BRACKET = re.compile(r"^\[\w\]\s*")       # [Y] Label
+_ACCEL_PAREN = re.compile(r"^\w\)\s*")           # Y) Label
+_ACCEL_DASH = re.compile(r"^\w\s*-\s+")          # Y - Label
+
+
 def normalize_label(label: str) -> str:
     """Normalize an edge label for comparison.
 
-    Strips whitespace, lowercases, removes non-alphanumeric characters
-    except underscores.
+    Strips accelerator prefixes (``[Y] ``, ``Y) ``, ``Y - ``, ``&``),
+    lowercases, removes non-alphanumeric characters except underscores.
     """
+    label = label.strip()
+    # Strip accelerator prefixes
+    label = _ACCEL_BRACKET.sub("", label)
+    label = _ACCEL_PAREN.sub("", label)
+    label = _ACCEL_DASH.sub("", label)
+    # Strip & markers (keep the letter after &)
+    label = label.replace("&", "")
     label = label.strip().lower()
     label = re.sub(r"[^a-z0-9_]", "", label)
     return label
@@ -117,38 +129,38 @@ def select_edge(
 ) -> Edge | None:
     """Select the next edge to follow using the 5-step priority system.
 
-    Priority order:
-      1. Suggested next IDs from outcome
-      2. Edges whose condition evaluates to True
-      3. Edges whose label matches outcome.preferred_label
-      4. Edges whose label matches outcome.status
-      5. Default / unlabelled / first available edge
+    Priority order per spec Section 3.3:
+      1. Edges whose condition evaluates to True (highest priority)
+      2. Edges whose label matches outcome.preferred_label
+      3. Suggested next IDs from outcome
+      4. Highest weight / status label match
+      5. Lexical tiebreak (default / unlabelled / first available)
     """
     outgoing = graph.outgoing_edges(node.id)
     if not outgoing:
         return None
 
-    # Step 1: suggested_next_ids from outcome
-    if outcome.suggested_next_ids:
-        for sid in outcome.suggested_next_ids:
-            for edge in outgoing:
-                if edge.to_node == sid:
-                    return edge
-
-    # Step 2: condition-based edges
+    # Step 1: condition-based edges (highest priority)
     conditional_edges = [e for e in outgoing if e.condition]
     for edge in conditional_edges:
         if evaluate_condition(edge.condition, outcome, context):
             return edge
 
-    # Step 3: label matches preferred_label
+    # Step 2: label matches preferred_label
     if outcome.preferred_label:
         norm_pref = normalize_label(outcome.preferred_label)
         for edge in outgoing:
             if edge.label and normalize_label(edge.label) == norm_pref:
                 return edge
 
-    # Step 4: label matches outcome status
+    # Step 3: suggested_next_ids from outcome
+    if outcome.suggested_next_ids:
+        for sid in outcome.suggested_next_ids:
+            for edge in outgoing:
+                if edge.to_node == sid:
+                    return edge
+
+    # Step 4: label matches outcome status, then highest weight
     status_label = normalize_label(outcome.status.value)
     for edge in outgoing:
         if edge.label and normalize_label(edge.label) == status_label:
@@ -318,6 +330,24 @@ def run(
             current_node = graph.nodes[resume_id]
 
     emitter.emit(PipelineEventKind.PIPELINE_START, graph_name=graph.name)
+
+    # Write manifest file
+    if config.logs_root:
+        import json as _json
+        import datetime as _dt
+
+        logs_path = Path(config.logs_root) if isinstance(config.logs_root, str) else config.logs_root
+        logs_path.mkdir(parents=True, exist_ok=True)
+        manifest = {
+            "name": graph.name,
+            "goal": graph.goal or "",
+            "start_time": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+            "node_count": len(graph.nodes),
+            "edge_count": len(graph.edges),
+        }
+        (logs_path / "manifest.json").write_text(
+            _json.dumps(manifest, indent=2), encoding="utf-8"
+        )
 
     step = 0
     final_outcome = Outcome(status=StageStatus.SUCCESS)

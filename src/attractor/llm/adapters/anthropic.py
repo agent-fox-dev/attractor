@@ -159,12 +159,38 @@ class AnthropicAdapter(ProviderAdapter):
     def _extra_headers(self, request: Request) -> dict[str, str]:
         headers: dict[str, str] = {}
         opts = request.provider_options or {}
+        betas: list[str] = []
+
         if beta := opts.get("beta_headers"):
             if isinstance(beta, list):
-                headers["anthropic-beta"] = ",".join(beta)
+                betas.extend(beta)
             else:
-                headers["anthropic-beta"] = str(beta)
+                betas.append(str(beta))
+
+        # Auto-inject prompt-caching beta when cache_control is used
+        if self._uses_cache_control(request):
+            if "prompt-caching-2024-07-31" not in betas:
+                betas.append("prompt-caching-2024-07-31")
+
+        # Auto-inject thinking beta when reasoning is enabled
+        if request.reasoning_effort:
+            if "interleaved-thinking-2025-05-14" not in betas:
+                betas.append("interleaved-thinking-2025-05-14")
+
+        if betas:
+            headers["anthropic-beta"] = ",".join(betas)
+
         return headers
+
+    def _uses_cache_control(self, request: Request) -> bool:
+        """Check if this request will use cache_control breakpoints."""
+        opts = request.provider_options or {}
+        auto_cache = opts.get("auto_cache", True)
+        return bool(
+            auto_cache
+            or opts.get("cache_system")
+            or opts.get("cache_messages")
+        )
 
     async def _post(
         self,
@@ -236,9 +262,10 @@ class AnthropicAdapter(ProviderAdapter):
         for msg in request.messages:
             if msg.role == Role.SYSTEM:
                 block: dict[str, Any] = {"type": "text", "text": msg.text}
-                # Inject cache_control on system blocks if requested.
+                # Auto-inject cache_control on system blocks unless disabled.
                 opts = request.provider_options or {}
-                if opts.get("cache_system"):
+                auto_cache = opts.get("auto_cache", True)
+                if auto_cache or opts.get("cache_system"):
                     block["cache_control"] = {"type": "ephemeral"}
                 system_parts.append(block)
             else:
@@ -259,6 +286,9 @@ class AnthropicAdapter(ProviderAdapter):
 
         if request.temperature is not None:
             payload["temperature"] = request.temperature
+
+        if request.top_p is not None:
+            payload["top_p"] = request.top_p
 
         if request.stop_sequences:
             payload["stop_sequences"] = request.stop_sequences
@@ -350,9 +380,10 @@ class AnthropicAdapter(ProviderAdapter):
             elif part.kind == ContentKind.REDACTED_THINKING:
                 content.append({"type": "redacted_thinking"})
 
-        # Inject cache_control on the last user content block if requested.
+        # Auto-inject cache_control on last user content block unless disabled.
         opts = request.provider_options or {}
-        if opts.get("cache_messages") and content and role == "user":
+        auto_cache = opts.get("auto_cache", True)
+        if (auto_cache or opts.get("cache_messages")) and content and role == "user":
             content[-1]["cache_control"] = {"type": "ephemeral"}
 
         return {"role": role, "content": content}
@@ -423,6 +454,7 @@ class AnthropicAdapter(ProviderAdapter):
         return Response(
             id=raw.get("id", ""),
             model=raw.get("model", ""),
+            provider=self.name,
             content=content,
             usage=usage,
             finish_reason=finish,

@@ -163,12 +163,17 @@ def _make_executors(
         model: str | None = arguments.get("model")
         max_turns: int = arguments.get("max_turns", 0)
 
+        # Enforce depth limit: check if parent session depth is at max
+        parent_depth = getattr(env, "_parent_depth", 0)
+        max_depth = getattr(env, "_max_subagent_depth", 1)
+        if parent_depth >= max_depth:
+            return (
+                f"Error: Cannot spawn subagent — depth limit reached "
+                f"(current depth: {parent_depth}, max: {max_depth})."
+            )
+
         agent_id = str(uuid.uuid4())
 
-        # We need a reference to the parent session to enforce depth limits.
-        # The executor receives only (arguments, env), so we store the parent
-        # session on the env as a temporary attribute if the caller sets it up,
-        # or we simply create the child session via the factory.
         child_session = session_factory(
             task=task,
             working_dir=working_dir,
