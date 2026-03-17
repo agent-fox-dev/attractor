@@ -203,6 +203,55 @@ def test_conversation_export_import():
     assert session2.history[1].tool_calls[0].name == "shell"
 
 
+def test_session_state_guards():
+    """Session rejects submit when closed or already processing."""
+    import asyncio
+    import pytest
+    from attractor.agent.session import Session, SessionState
+
+    env = LocalExecutionEnvironment()
+    profile = AnthropicProfile()
+    session = Session(profile=profile, execution_env=env)
+
+    # Closed session should reject submit
+    session.state = SessionState.CLOSED
+    with pytest.raises(RuntimeError, match="closed"):
+        asyncio.run(session.submit("test"))
+
+    # Processing session should reject submit
+    session.state = SessionState.PROCESSING
+    with pytest.raises(RuntimeError, match="already processing"):
+        asyncio.run(session.submit("test"))
+
+
+def test_validate_tool_args():
+    """Tool argument validation checks required fields and types."""
+    from attractor.agent.session import _validate_tool_args
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "command": {"type": "string"},
+            "timeout": {"type": "integer"},
+        },
+        "required": ["command"],
+    }
+
+    # Valid
+    assert _validate_tool_args({"command": "ls"}, schema) is None
+    assert _validate_tool_args({"command": "ls", "timeout": 5}, schema) is None
+
+    # Missing required field
+    err = _validate_tool_args({}, schema)
+    assert err is not None
+    assert "command" in err
+
+    # Wrong type
+    err = _validate_tool_args({"command": 123}, schema)
+    assert err is not None
+    assert "wrong type" in err.lower()
+
+
 def test_subagent_depth_limit():
     """Subagent spawn_agent rejects when depth limit is reached."""
     from attractor.agent.tools.subagent import _make_executors

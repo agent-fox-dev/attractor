@@ -318,6 +318,50 @@ def _count_turns(history: list[Turn]) -> int:
     )
 
 
+_JSON_TYPE_MAP: dict[str, type | tuple[type, ...]] = {
+    "string": str,
+    "integer": int,
+    "number": (int, float),
+    "boolean": bool,
+    "array": list,
+    "object": dict,
+}
+
+
+def _validate_tool_args(
+    arguments: dict[str, Any],
+    schema: dict[str, Any],
+) -> str | None:
+    """Lightweight JSON Schema validation for tool arguments.
+
+    Checks required fields and basic type constraints without an
+    external ``jsonschema`` dependency.  Returns an error string on
+    failure, or ``None`` if validation passes.
+    """
+    # Check required fields
+    required = schema.get("required", [])
+    for field in required:
+        if field not in arguments:
+            return f"Missing required argument: '{field}'"
+
+    # Check property types
+    properties = schema.get("properties", {})
+    for key, value in arguments.items():
+        if key not in properties:
+            continue
+        prop_schema = properties[key]
+        expected_type = prop_schema.get("type")
+        if expected_type and expected_type in _JSON_TYPE_MAP:
+            py_type = _JSON_TYPE_MAP[expected_type]
+            if not isinstance(value, py_type):
+                return (
+                    f"Argument '{key}' has wrong type: "
+                    f"expected {expected_type}, got {type(value).__name__}"
+                )
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Session
 # ---------------------------------------------------------------------------
@@ -360,7 +404,14 @@ class Session:
 
         If *stream* is True, uses the streaming API and emits
         ``ASSISTANT_TEXT_DELTA`` events as tokens arrive.
+
+        Raises ``RuntimeError`` if the session is closed or already processing.
         """
+        if self.state == SessionState.CLOSED:
+            raise RuntimeError("Cannot submit to a closed session.")
+        if self.state == SessionState.PROCESSING:
+            raise RuntimeError("Session is already processing.")
+
         if self.state == SessionState.IDLE and not self.history:
             self._emit(EventKind.SESSION_START, session_id=self.id)
         if stream:
@@ -496,6 +547,22 @@ class Session:
                     arguments = json.loads(arguments)
                 except json.JSONDecodeError:
                     arguments = {"input": arguments}
+
+            # Validate arguments against tool schema
+            schema = registered.definition.parameters
+            if schema and isinstance(arguments, dict):
+                validation_error = _validate_tool_args(arguments, schema)
+                if validation_error:
+                    self._emit(
+                        EventKind.TOOL_CALL_END,
+                        call_id=tool_call.id,
+                        error=validation_error,
+                    )
+                    return ToolResultData(
+                        tool_call_id=tool_call.id,
+                        content=validation_error,
+                        is_error=True,
+                    )
 
             raw_output = registered.executor(arguments, self.execution_env)
 
