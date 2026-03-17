@@ -141,10 +141,12 @@ def select_edge(
         return None
 
     # Step 1: condition-based edges (highest priority)
+    # When multiple conditions match, sort by weight (desc) then lexical order.
     conditional_edges = [e for e in outgoing if e.condition]
-    for edge in conditional_edges:
-        if evaluate_condition(edge.condition, outcome, context):
-            return edge
+    matched = [e for e in conditional_edges if evaluate_condition(e.condition, outcome, context)]
+    if matched:
+        matched.sort(key=lambda e: (-e.weight, e.to_node))
+        return matched[0]
 
     # Step 2: label matches preferred_label
     if outcome.preferred_label:
@@ -230,7 +232,7 @@ def execute_with_retry(
 
     for attempt in range(retry_policy.max_retries + 1):
         try:
-            outcome = handler.execute(node, context, graph, logs_root)
+            outcome = handler.execute(node, context, graph, logs_root, emitter=emitter)
         except Exception as exc:
             outcome = Outcome(
                 status=StageStatus.FAIL,

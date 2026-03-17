@@ -301,7 +301,7 @@ def test_allow_partial_on_fail():
     from attractor.pipeline.handlers.base import Handler
 
     class FailHandler(Handler):
-        def execute(self, node, context, graph, logs_root=None):
+        def execute(self, node, context, graph, logs_root=None, emitter=None):
             return Outcome(status=StageStatus.FAIL, failure_reason="always fails")
 
     graph = parse_dot("""
@@ -490,3 +490,94 @@ def test_checkpoint_save_and_resume():
         cp = Checkpoint.load(cp_path)
         assert "a" in cp.completed_nodes
         assert "b" in cp.completed_nodes
+
+
+def test_edge_selection_multiple_conditions_weight_sorted():
+    """When multiple conditional edges match, highest weight wins."""
+    from attractor.pipeline.engine import select_edge
+    from attractor.pipeline.context import Context
+
+    graph = parse_dot("""
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        a [shape=box]
+        low [shape=box]
+        high [shape=box]
+        start -> a
+        a -> low [condition="status=success", weight=1]
+        a -> high [condition="status=success", weight=10]
+    }
+    """)
+    ctx = Context()
+    ctx.set("status", "success")
+    outcome = Outcome(status=StageStatus.SUCCESS)
+    edge = select_edge(graph.nodes["a"], outcome, ctx, graph)
+    assert edge is not None
+    assert edge.to_node == "high"
+
+
+def test_parallel_handler_emits_events():
+    """ParallelHandler emits PARALLEL_STARTED/BRANCH_STARTED/BRANCH_COMPLETED/COMPLETED."""
+    from attractor.pipeline.handlers.parallel import ParallelHandler
+    from attractor.pipeline.context import Context
+    from attractor.pipeline.events import EventEmitter, PipelineEventKind
+
+    graph = parse_dot("""
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        par [shape=component]
+        a [shape=box, prompt="A"]
+        b [shape=box, prompt="B"]
+        start -> par
+        par -> a
+        par -> b
+        a -> exit
+        b -> exit
+    }
+    """)
+    events = []
+    emitter = EventEmitter(on_event=lambda e: events.append(e))
+    handler = ParallelHandler()
+    ctx = Context()
+    outcome = handler.execute(graph.nodes["par"], ctx, graph, emitter=emitter)
+    assert outcome.status == StageStatus.SUCCESS
+
+    kinds = [e.kind for e in events]
+    assert PipelineEventKind.PARALLEL_STARTED in kinds
+    assert PipelineEventKind.PARALLEL_COMPLETED in kinds
+    branch_started = [e for e in events if e.kind == PipelineEventKind.PARALLEL_BRANCH_STARTED]
+    branch_completed = [e for e in events if e.kind == PipelineEventKind.PARALLEL_BRANCH_COMPLETED]
+    assert len(branch_started) == 2
+    assert len(branch_completed) == 2
+
+
+def test_human_handler_emits_interview_events():
+    """WaitForHumanHandler emits INTERVIEW_STARTED and INTERVIEW_COMPLETED."""
+    from attractor.pipeline.handlers.human import WaitForHumanHandler
+    from attractor.pipeline.context import Context
+    from attractor.pipeline.events import EventEmitter, PipelineEventKind
+
+    graph = parse_dot("""
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        gate [shape=hexagon, label="Approve?"]
+        yes_path [shape=box, prompt="Approved"]
+        start -> gate
+        gate -> yes_path [label="&Yes"]
+        gate -> exit [label="&No"]
+        yes_path -> exit
+    }
+    """)
+    events = []
+    emitter = EventEmitter(on_event=lambda e: events.append(e))
+    handler = WaitForHumanHandler(interviewer=AutoApproveInterviewer())
+    ctx = Context()
+    outcome = handler.execute(graph.nodes["gate"], ctx, graph, emitter=emitter)
+    assert outcome.status == StageStatus.SUCCESS
+
+    kinds = [e.kind for e in events]
+    assert PipelineEventKind.INTERVIEW_STARTED in kinds
+    assert PipelineEventKind.INTERVIEW_COMPLETED in kinds

@@ -16,6 +16,7 @@ from .base import Handler
 
 if TYPE_CHECKING:
     from ..context import Context
+    from ..events import EventEmitter
     from ..graph import Graph, Node
 
 
@@ -33,6 +34,7 @@ class ParallelHandler(Handler):
         context: "Context",
         graph: "Graph",
         logs_root: Path | None = None,
+        emitter: "EventEmitter | None" = None,
     ) -> Outcome:
         outgoing = graph.outgoing_edges(node.id)
         if not outgoing:
@@ -48,13 +50,24 @@ class ParallelHandler(Handler):
         results: dict[str, Outcome] = {}
         lock = threading.Lock()
 
+        def _emit(kind: "PipelineEventKind", **data: Any) -> None:
+            if emitter is not None:
+                from ..events import PipelineEventKind as _PEK  # noqa: F811
+                emitter.emit(kind, **data)
+
+        from ..events import PipelineEventKind
+        _emit(PipelineEventKind.PARALLEL_STARTED, node_id=node.id, branch_count=len(branch_targets))
+
         def _run_branch(target_id: str) -> tuple[str, Outcome]:
+            _emit(PipelineEventKind.PARALLEL_BRANCH_STARTED, node_id=node.id, branch_target=target_id)
             target_node = graph.nodes.get(target_id)
             if target_node is None:
-                return target_id, Outcome(
+                outcome = Outcome(
                     status=StageStatus.FAIL,
                     failure_reason=f"Branch target '{target_id}' not found.",
                 )
+                _emit(PipelineEventKind.PARALLEL_BRANCH_COMPLETED, node_id=node.id, branch_target=target_id, status="fail")
+                return target_id, outcome
             try:
                 from . import _get_default_registry
                 registry = _get_default_registry()
@@ -64,8 +77,10 @@ class ParallelHandler(Handler):
                 if outcome.context_updates:
                     with lock:
                         context.apply_updates(outcome.context_updates)
+                _emit(PipelineEventKind.PARALLEL_BRANCH_COMPLETED, node_id=node.id, branch_target=target_id, status=outcome.status.value)
                 return target_id, outcome
             except Exception as exc:
+                _emit(PipelineEventKind.PARALLEL_BRANCH_COMPLETED, node_id=node.id, branch_target=target_id, status="fail")
                 return target_id, Outcome(
                     status=StageStatus.FAIL,
                     failure_reason=str(exc),
@@ -95,11 +110,13 @@ class ParallelHandler(Handler):
 
                 context.set("parallel_results", _result_map())
                 if first_success_outcome is not None:
+                    _emit(PipelineEventKind.PARALLEL_COMPLETED, node_id=node.id, status="success")
                     return Outcome(
                         status=StageStatus.SUCCESS,
                         notes="First success from parallel branches.",
                         context_updates={"parallel_results": _result_map()},
                     )
+                _emit(PipelineEventKind.PARALLEL_COMPLETED, node_id=node.id, status="fail")
                 return Outcome(
                     status=StageStatus.FAIL,
                     failure_reason="No branch succeeded in first_success mode.",
@@ -124,11 +141,13 @@ class ParallelHandler(Handler):
 
                 context.set("parallel_results", _result_map())
                 if success_count >= required:
+                    _emit(PipelineEventKind.PARALLEL_COMPLETED, node_id=node.id, status="success")
                     return Outcome(
                         status=StageStatus.SUCCESS,
                         notes=f"{success_count}/{total} branches succeeded (needed {required}).",
                         context_updates={"parallel_results": _result_map()},
                     )
+                _emit(PipelineEventKind.PARALLEL_COMPLETED, node_id=node.id, status="fail")
                 return Outcome(
                     status=StageStatus.FAIL,
                     failure_reason=f"Only {success_count}/{total} branches succeeded (needed {required}).",
@@ -144,6 +163,7 @@ class ParallelHandler(Handler):
                         for f in futures:
                             f.cancel()
                         context.set("parallel_results", _result_map())
+                        _emit(PipelineEventKind.PARALLEL_COMPLETED, node_id=node.id, status="fail")
                         return Outcome(
                             status=StageStatus.FAIL,
                             failure_reason=f"Branch '{tid}' failed: {outcome.failure_reason}",
@@ -155,12 +175,14 @@ class ParallelHandler(Handler):
 
         failures = [k for k, v in results.items() if v.status == StageStatus.FAIL]
         if failures and error_policy != "ignore":
+            _emit(PipelineEventKind.PARALLEL_COMPLETED, node_id=node.id, status="partial_success")
             return Outcome(
                 status=StageStatus.PARTIAL_SUCCESS,
                 failure_reason=f"Branches failed: {', '.join(failures)}",
                 context_updates={"parallel_results": result_map},
             )
 
+        _emit(PipelineEventKind.PARALLEL_COMPLETED, node_id=node.id, status="success")
         return Outcome(
             status=StageStatus.SUCCESS,
             notes=f"All {len(results)} branches completed.",

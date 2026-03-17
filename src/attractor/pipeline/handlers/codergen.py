@@ -18,6 +18,7 @@ from .base import Handler
 
 if TYPE_CHECKING:
     from ..context import Context
+    from ..events import EventEmitter
     from ..graph import Graph, Node
 
 
@@ -46,6 +47,7 @@ class CodergenHandler(Handler):
         context: "Context",
         graph: "Graph",
         logs_root: Path | None = None,
+        emitter: "EventEmitter | None" = None,
     ) -> Outcome:
         # Expand $goal in the prompt
         prompt = node.prompt

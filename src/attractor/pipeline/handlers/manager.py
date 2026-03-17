@@ -14,6 +14,7 @@ from .base import Handler
 
 if TYPE_CHECKING:
     from ..context import Context
+    from ..events import EventEmitter
     from ..graph import Graph, Node
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,7 @@ class ManagerLoopHandler(Handler):
         context: "Context",
         graph: "Graph",
         logs_root: Path | None = None,
+        emitter: "EventEmitter | None" = None,
     ) -> Outcome:
         max_cycles = int(node.attrs.get("manager.max_cycles", "") or node.attrs.get("max_cycles", "10"))
         # Support both manager.poll_interval (duration string) and wait_seconds (plain float)

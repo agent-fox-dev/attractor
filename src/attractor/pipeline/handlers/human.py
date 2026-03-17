@@ -25,6 +25,7 @@ from .base import Handler
 
 if TYPE_CHECKING:
     from ..context import Context
+    from ..events import EventEmitter
     from ..graph import Graph, Node
 
 
@@ -90,6 +91,7 @@ class WaitForHumanHandler(Handler):
         context: "Context",
         graph: "Graph",
         logs_root: Path | None = None,
+        emitter: "EventEmitter | None" = None,
     ) -> Outcome:
         outgoing = graph.outgoing_edges(node.id)
 
@@ -120,10 +122,17 @@ class WaitForHumanHandler(Handler):
             stage=node.id,
         )
 
+        if emitter is not None:
+            from ..events import PipelineEventKind
+            emitter.emit(PipelineEventKind.INTERVIEW_STARTED, node_id=node.id, question_type=q_type.value)
+
         answer: Answer = self._interviewer.ask(question)
 
         # Map answer to outcome
         if answer.value == AnswerValue.TIMEOUT:
+            if emitter is not None:
+                from ..events import PipelineEventKind
+                emitter.emit(PipelineEventKind.INTERVIEW_TIMEOUT, node_id=node.id)
             # Check for default_choice on timeout
             default_choice = node.attrs.get("human.default_choice", "")
             if default_choice and default_choice in key_to_target:
@@ -139,6 +148,9 @@ class WaitForHumanHandler(Handler):
             )
 
         if answer.value == AnswerValue.NO:
+            if emitter is not None:
+                from ..events import PipelineEventKind
+                emitter.emit(PipelineEventKind.INTERVIEW_COMPLETED, node_id=node.id, answer="no")
             # Try to find a "no" edge
             no_target = key_to_target.get("n") or key_to_target.get("no")
             if no_target:
@@ -164,6 +176,10 @@ class WaitForHumanHandler(Handler):
             # Default to first option
             suggested = [key_to_target[options[0].key]]
             preferred_label = options[0].label
+
+        if emitter is not None:
+            from ..events import PipelineEventKind
+            emitter.emit(PipelineEventKind.INTERVIEW_COMPLETED, node_id=node.id, answer=selected or "yes")
 
         return Outcome(
             status=StageStatus.SUCCESS,

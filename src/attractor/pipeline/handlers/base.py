@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..context import Context
+    from ..events import EventEmitter
     from ..graph import Graph, Node, Outcome
 
 
@@ -21,6 +22,7 @@ class Handler(ABC):
         context: "Context",
         graph: "Graph",
         logs_root: Path | None = None,
+        emitter: "EventEmitter | None" = None,
     ) -> "Outcome":
         """Execute the handler logic for *node* and return an Outcome."""
         ...

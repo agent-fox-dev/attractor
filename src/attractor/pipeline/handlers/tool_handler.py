@@ -13,6 +13,7 @@ from .base import Handler
 
 if TYPE_CHECKING:
     from ..context import Context
+    from ..events import EventEmitter
     from ..graph import Graph, Node
 
 
@@ -30,6 +31,7 @@ class ToolHandler(Handler):
         context: "Context",
         graph: "Graph",
         logs_root: Path | None = None,
+        emitter: "EventEmitter | None" = None,
     ) -> Outcome:
         command = node.attrs.get("tool_command", "") or node.attrs.get("command", "") or node.prompt
         if not command:
