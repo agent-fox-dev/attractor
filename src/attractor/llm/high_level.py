@@ -23,6 +23,7 @@ from typing import Any
 
 from attractor.llm.client import Client
 from attractor.llm.types import (
+    AbortSignal,
     ContentKind,
     ContentPart,
     FinishReason,
@@ -194,6 +195,7 @@ async def generate(
     tool_executor: ToolExecutor | None = None,
     stop_when: StopCondition | None = None,
     retry_policy: RetryPolicy | None = None,
+    abort_signal: AbortSignal | None = None,
 ) -> GenerateResult:
     """Generate an LLM response, optionally with automatic tool execution.
 
@@ -224,6 +226,7 @@ async def generate(
             reasoning_effort=reasoning_effort,
             provider=provider,
             provider_options=provider_options,
+            abort_signal=abort_signal,
         )
 
         response = await _retry_call(
@@ -308,11 +311,14 @@ async def generate_object(
     provider_options: dict[str, Any] | None = None,
     client: Client | None = None,
     retry_policy: RetryPolicy | None = None,
+    abort_signal: AbortSignal | None = None,
 ) -> dict[str, Any]:
     """Generate a structured object matching *schema*.
 
     Uses the provider's native JSON mode or response_format when available.
-    Parses the response text as JSON and returns the resulting dict.
+    For providers that lack native structured output (e.g. Anthropic), falls
+    back to tool-based extraction: defines a tool whose input_schema matches
+    *schema* and forces the model to call it.
 
     Raises :class:`NoObjectGeneratedError` if the response cannot be
     parsed as valid JSON.
@@ -320,6 +326,21 @@ async def generate_object(
     effective_client = client or _get_default_client()
     messages = _coerce_messages(prompt_or_messages)
     policy = retry_policy or RetryPolicy(max_retries=0)
+
+    # Determine if we should use tool-based extraction fallback.
+    use_tool_fallback = (provider or "").startswith("anthropic") or (
+        not provider
+        and hasattr(effective_client, "_default_provider")
+        and (effective_client._default_provider or "").startswith("anthropic")
+    )
+
+    if use_tool_fallback:
+        return await _generate_object_via_tool(
+            effective_client, model, messages, schema=schema,
+            max_tokens=max_tokens, temperature=temperature,
+            provider=provider, provider_options=provider_options,
+            policy=policy, abort_signal=abort_signal,
+        )
 
     request = Request(
         model=model,
@@ -329,6 +350,7 @@ async def generate_object(
         provider=provider,
         provider_options=provider_options,
         response_format={"type": "json_schema", "json_schema": schema, "strict": True},
+        abort_signal=abort_signal,
     )
 
     response = await _retry_call(
@@ -346,6 +368,67 @@ async def generate_object(
         raise NoObjectGeneratedError(
             f"Failed to parse model output as JSON: {exc}"
         ) from exc
+
+
+async def _generate_object_via_tool(
+    client: Client,
+    model: str,
+    messages: list[Message],
+    *,
+    schema: dict[str, Any],
+    max_tokens: int | None,
+    temperature: float | None,
+    provider: str | None,
+    provider_options: dict[str, Any] | None,
+    policy: RetryPolicy,
+    abort_signal: AbortSignal | None,
+) -> dict[str, Any]:
+    """Fallback: use a tool call to extract structured output."""
+    tool = ToolDefinition(
+        name="_extract_object",
+        description="Extract the structured object matching the requested schema.",
+        parameters=schema,
+    )
+    request = Request(
+        model=model,
+        messages=messages,
+        tools=[tool],
+        tool_choice="_extract_object",
+        max_tokens=max_tokens,
+        temperature=temperature,
+        provider=provider,
+        provider_options=provider_options,
+        abort_signal=abort_signal,
+    )
+
+    response = await _retry_call(
+        lambda: client.complete(request),
+        policy,
+    )
+
+    # Extract the tool call arguments
+    tool_calls = response.tool_calls
+    if tool_calls:
+        args = tool_calls[0].arguments
+        if isinstance(args, dict):
+            return args
+        if isinstance(args, str):
+            try:
+                return json.loads(args)
+            except json.JSONDecodeError as exc:
+                raise NoObjectGeneratedError(
+                    f"Failed to parse tool call arguments as JSON: {exc}"
+                ) from exc
+
+    # Fallback: try parsing response text
+    text = response.text.strip()
+    if text:
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+    raise NoObjectGeneratedError("Model did not produce a valid structured object")
 
 
 # ---------------------------------------------------------------------------
@@ -366,6 +449,7 @@ async def stream(
     provider_options: dict[str, Any] | None = None,
     client: Client | None = None,
     max_tool_rounds: int = 0,
+    abort_signal: AbortSignal | None = None,
 ) -> AsyncIterator[StreamEvent]:
     """Stream LLM response events.
 
@@ -387,6 +471,7 @@ async def stream(
         reasoning_effort=reasoning_effort,
         provider=provider,
         provider_options=provider_options,
+        abort_signal=abort_signal,
     )
 
     async for event in effective_client.stream(request):
@@ -483,6 +568,7 @@ async def stream_with_result(
     provider: str | None = None,
     provider_options: dict[str, Any] | None = None,
     client: Client | None = None,
+    abort_signal: AbortSignal | None = None,
 ) -> StreamResult:
     """Stream LLM response events, returning a StreamResult wrapper.
 
@@ -500,6 +586,7 @@ async def stream_with_result(
         provider=provider,
         provider_options=provider_options,
         client=client,
+        abort_signal=abort_signal,
     )
     return StreamResult(events)
 
@@ -519,6 +606,7 @@ async def stream_object(
     provider: str | None = None,
     provider_options: dict[str, Any] | None = None,
     client: Client | None = None,
+    abort_signal: AbortSignal | None = None,
 ) -> AsyncIterator[dict[str, Any] | str]:
     """Stream structured output with incremental JSON parsing.
 
@@ -537,6 +625,7 @@ async def stream_object(
         provider=provider,
         provider_options=provider_options,
         response_format={"type": "json_schema", "json_schema": schema, "strict": True},
+        abort_signal=abort_signal,
     )
 
     text_parts: list[str] = []

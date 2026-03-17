@@ -319,6 +319,58 @@ def test_allow_partial_on_fail():
     assert "allow_partial" in outcome.notes
 
 
+def test_manager_child_status_via_context():
+    """Manager loop terminates when child status is set to completed in context."""
+    from attractor.pipeline.handlers.manager import ManagerLoopHandler
+    from attractor.pipeline.context import Context
+
+    graph = parse_dot("""
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        mgr [shape=box, type="stack.manager_loop"]
+        start -> mgr -> exit
+    }
+    """)
+    graph.nodes["mgr"].attrs["max_cycles"] = "5"
+    graph.nodes["mgr"].attrs["wait_seconds"] = "0"
+
+    ctx = Context()
+    # Pre-set child status as if child completed
+    ctx.set("context.stack.child.status", "completed")
+    ctx.set("context.stack.child.outcome", "success")
+
+    handler = ManagerLoopHandler()
+    outcome = handler.execute(graph.nodes["mgr"], ctx, graph)
+    assert outcome.status == StageStatus.SUCCESS
+    assert "child" in outcome.notes.lower() or "completed" in outcome.notes.lower()
+
+
+def test_manager_actions_attribute():
+    """Manager loop respects manager.actions attribute."""
+    from attractor.pipeline.handlers.manager import ManagerLoopHandler
+    from attractor.pipeline.context import Context
+
+    graph = parse_dot("""
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        mgr [shape=box, type="stack.manager_loop"]
+        start -> mgr -> exit
+    }
+    """)
+    graph.nodes["mgr"].attrs["max_cycles"] = "2"
+    graph.nodes["mgr"].attrs["wait_seconds"] = "0"
+    graph.nodes["mgr"].attrs["manager.actions"] = "observe"  # no "wait"
+
+    ctx = Context()
+    ctx.set("manager_done", True)
+
+    handler = ManagerLoopHandler()
+    outcome = handler.execute(graph.nodes["mgr"], ctx, graph)
+    assert outcome.status == StageStatus.SUCCESS
+
+
 def test_checkpoint_save_and_resume():
     dot = """
     digraph T {

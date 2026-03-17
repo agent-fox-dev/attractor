@@ -296,3 +296,42 @@ def test_openai_compatible_adapter_init():
         provider_name="ollama",
     )
     assert adapter.name == "ollama"
+
+
+def test_abort_signal_and_controller():
+    from attractor.llm.types import AbortSignal, AbortController, AbortError
+    import pytest
+
+    controller = AbortController()
+    assert controller.signal.aborted is False
+    controller.signal.check()  # should not raise
+
+    controller.abort()
+    assert controller.signal.aborted is True
+    with pytest.raises(AbortError):
+        controller.signal.check()
+
+
+def test_abort_signal_on_request():
+    from attractor.llm.types import AbortController
+
+    controller = AbortController()
+    req = Request(model="test", abort_signal=controller.signal)
+    assert req.abort_signal is controller.signal
+    assert req.abort_signal.aborted is False
+
+
+def test_client_complete_checks_abort():
+    import pytest
+    import asyncio
+    from attractor.llm.types import AbortController, AbortError
+    from attractor.llm.client import Client
+
+    controller = AbortController()
+    controller.abort()  # pre-abort
+
+    client = Client(providers={}, default_provider=None)
+    req = Request(model="test", provider="fake", abort_signal=controller.signal)
+
+    with pytest.raises(AbortError):
+        asyncio.run(client.complete(req))

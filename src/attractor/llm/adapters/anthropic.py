@@ -527,9 +527,11 @@ class AnthropicAdapter(ProviderAdapter):
             delta = data.get("delta", {})
             dtype = delta.get("type", "")
             if dtype == "text_delta":
+                text = delta.get("text", "")
                 yield StreamEvent(
                     kind=StreamEventKind.CONTENT_DELTA,
-                    content_part=ContentPart(kind=ContentKind.TEXT, text=delta.get("text", "")),
+                    data={"text": text},
+                    content_part=ContentPart(kind=ContentKind.TEXT, text=text),
                 )
             elif dtype == "input_json_delta":
                 yield StreamEvent(

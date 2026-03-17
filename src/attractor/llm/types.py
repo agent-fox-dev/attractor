@@ -6,6 +6,7 @@ All provider adapters translate to and from these canonical types.
 
 from __future__ import annotations
 
+import threading
 from enum import StrEnum
 from typing import Any, Union
 
@@ -304,6 +305,43 @@ class Usage(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class AbortSignal:
+    """Cooperative cancellation signal for LLM requests.
+
+    Usage::
+
+        controller = AbortController()
+        # Pass controller.signal to generate() or stream()
+        # Later: controller.abort() to cancel
+    """
+
+    def __init__(self) -> None:
+        self._event = threading.Event()
+
+    @property
+    def aborted(self) -> bool:
+        return self._event.is_set()
+
+    def _abort(self) -> None:
+        self._event.set()
+
+    def check(self) -> None:
+        """Raise AbortError if the signal has been triggered."""
+        if self._event.is_set():
+            raise AbortError("Request aborted via signal")
+
+
+class AbortController:
+    """Creates and controls an AbortSignal."""
+
+    def __init__(self) -> None:
+        self.signal = AbortSignal()
+
+    def abort(self) -> None:
+        """Signal cancellation."""
+        self.signal._abort()
+
+
 class Request(BaseModel):
     """Input for both ``complete()`` and ``stream()``."""
 
@@ -320,6 +358,9 @@ class Request(BaseModel):
     stop_sequences: list[str] | None = None
     response_format: ResponseFormat | dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
+    abort_signal: AbortSignal | None = Field(default=None, exclude=True)
+
+    model_config = {"arbitrary_types_allowed": True}
 
 
 # ---------------------------------------------------------------------------

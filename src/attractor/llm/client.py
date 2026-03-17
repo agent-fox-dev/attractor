@@ -14,6 +14,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from attractor.llm.adapters.base import ProviderAdapter
 from attractor.llm.types import (
+    AbortError,
     ProviderError,
     Request,
     Response,
@@ -161,17 +162,25 @@ class Client:
 
     async def complete(self, request: Request) -> Response:
         """Send *request* and return a complete :class:`Response`."""
+        if request.abort_signal:
+            request.abort_signal.check()
         adapter = self._resolve_provider(request)
         request = await self._apply_request_middleware(request)
         response = await adapter.complete(request)
+        if request.abort_signal:
+            request.abort_signal.check()
         response = await self._apply_response_middleware(request, response)
         return response
 
     async def stream(self, request: Request) -> AsyncIterator[StreamEvent]:
         """Send *request* and yield :class:`StreamEvent` items."""
+        if request.abort_signal:
+            request.abort_signal.check()
         adapter = self._resolve_provider(request)
         request = await self._apply_request_middleware(request)
         async for event in adapter.stream(request):
+            if request.abort_signal:
+                request.abort_signal.check()
             event = await self._apply_stream_middleware(request, event)
             yield event
 

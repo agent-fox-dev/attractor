@@ -97,7 +97,7 @@ class TerminalNodeRule(LintRule):
                      or len(graph.outgoing_edges(n.id)) == 0]
         if not terminals:
             return [Diagnostic(
-                rule="terminal_node", severity=Severity.WARNING,
+                rule="terminal_node", severity=Severity.ERROR,
                 message="No terminal node found. The pipeline may loop indefinitely.",
                 fix="Add an exit node or ensure at least one node has no outgoing edges.",
             )]
@@ -168,7 +168,7 @@ class StartNoIncomingRule(LintRule):
             incoming = graph.incoming_edges(s.id)
             if incoming:
                 diags.append(Diagnostic(
-                    rule="start_no_incoming", severity=Severity.WARNING,
+                    rule="start_no_incoming", severity=Severity.ERROR,
                     message=f"Start node '{s.id}' has incoming edges, which is unusual.",
                     node_id=s.id,
                 ))
@@ -187,7 +187,7 @@ class ExitNoOutgoingRule(LintRule):
             outgoing = graph.outgoing_edges(e.id)
             if outgoing:
                 diags.append(Diagnostic(
-                    rule="exit_no_outgoing", severity=Severity.WARNING,
+                    rule="exit_no_outgoing", severity=Severity.ERROR,
                     message=f"Exit node '{e.id}' has outgoing edges, which is unusual.",
                     node_id=e.id,
                 ))

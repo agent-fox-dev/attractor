@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import re
+import subprocess
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -13,6 +15,8 @@ from .base import Handler
 if TYPE_CHECKING:
     from ..context import Context
     from ..graph import Graph, Node
+
+logger = logging.getLogger(__name__)
 
 
 _DURATION_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*(ms|s|m|h)?", re.IGNORECASE)
@@ -60,7 +64,7 @@ class ManagerLoopHandler(Handler):
         graph: "Graph",
         logs_root: Path | None = None,
     ) -> Outcome:
-        max_cycles = int(node.attrs.get("max_cycles", "10"))
+        max_cycles = int(node.attrs.get("manager.max_cycles", "") or node.attrs.get("max_cycles", "10"))
         # Support both manager.poll_interval (duration string) and wait_seconds (plain float)
         poll_interval_str = node.attrs.get("manager.poll_interval", "")
         if poll_interval_str:
@@ -69,9 +73,69 @@ class ManagerLoopHandler(Handler):
             wait_seconds = float(node.attrs.get("wait_seconds", "1"))
         completion_key = node.attrs.get("completion_key", "manager_done")
         stop_condition = node.attrs.get("manager.stop_condition", "")
+        actions = [a.strip() for a in node.attrs.get("manager.actions", "observe,wait").split(",")]
+
+        # Child pipeline support
+        child_dotfile = node.attrs.get("stack.child_dotfile", "") or graph.attrs.get("stack.child_dotfile", "")
+        child_autostart = node.attrs.get("stack.child_autostart", "true") != "false"
+        child_proc: subprocess.Popen | None = None
+
+        if child_dotfile and child_autostart:
+            child_workdir = node.attrs.get("stack.child_workdir", "") or "."
+            try:
+                child_proc = subprocess.Popen(
+                    ["attractor", "run", child_dotfile],
+                    cwd=child_workdir,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                context.set("context.stack.child.status", "running")
+                context.set("context.stack.child.pid", str(child_proc.pid))
+                logger.info("Started child pipeline %s (pid=%d)", child_dotfile, child_proc.pid)
+            except (OSError, FileNotFoundError) as exc:
+                logger.warning("Failed to start child pipeline: %s", exc)
+                context.set("context.stack.child.status", "failed")
 
         for cycle in range(max_cycles):
             # --- Observe ---
+            # Check child process if running
+            if child_proc is not None and "observe" in actions:
+                retcode = child_proc.poll()
+                if retcode is not None:
+                    child_status = "completed" if retcode == 0 else "failed"
+                    child_outcome = "success" if retcode == 0 else "fail"
+                    context.set("context.stack.child.status", child_status)
+                    context.set("context.stack.child.outcome", child_outcome)
+                    if retcode == 0:
+                        return Outcome(
+                            status=StageStatus.SUCCESS,
+                            notes=f"Child pipeline completed at cycle {cycle + 1}.",
+                            context_updates={"manager_cycles": cycle + 1},
+                        )
+                    else:
+                        return Outcome(
+                            status=StageStatus.FAIL,
+                            failure_reason=f"Child pipeline failed (exit {retcode}).",
+                            context_updates={"manager_cycles": cycle + 1},
+                        )
+
+            # Check context-based child status
+            child_ctx_status = context.get("context.stack.child.status", "")
+            if child_ctx_status in ("completed", "failed"):
+                child_outcome = context.get("context.stack.child.outcome", "")
+                if child_outcome == "success":
+                    return Outcome(
+                        status=StageStatus.SUCCESS,
+                        notes="Child completed.",
+                        context_updates={"manager_cycles": cycle + 1},
+                    )
+                if child_ctx_status == "failed":
+                    return Outcome(
+                        status=StageStatus.FAIL,
+                        failure_reason="Child failed.",
+                        context_updates={"manager_cycles": cycle + 1},
+                    )
+
             # Check if a completion signal has been set in context
             done_signal = context.get(completion_key, False)
             if done_signal:
@@ -120,10 +184,17 @@ class ManagerLoopHandler(Handler):
             context.set("manager_cycle", cycle + 1)
 
             # --- Wait ---
-            if cycle < max_cycles - 1:
+            if "wait" in actions and cycle < max_cycles - 1:
                 time.sleep(wait_seconds)
 
-        # Exhausted cycles
+        # Exhausted cycles — clean up child process if still running
+        if child_proc is not None and child_proc.poll() is None:
+            child_proc.terminate()
+            try:
+                child_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                child_proc.kill()
+
         return Outcome(
             status=StageStatus.PARTIAL_SUCCESS,
             notes=f"Manager reached max cycles ({max_cycles}) without completion signal.",
