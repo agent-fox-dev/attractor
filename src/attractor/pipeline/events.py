@@ -10,23 +10,53 @@ from typing import Any, Callable
 
 class PipelineEventKind(StrEnum):
     """All recognised pipeline event types."""
+    # Core pipeline lifecycle
     PIPELINE_START = "pipeline_start"
     PIPELINE_END = "pipeline_end"
+    PIPELINE_COMPLETED = "pipeline_completed"
+    PIPELINE_FAILED = "pipeline_failed"
+
+    # Stage (node) lifecycle
     NODE_ENTER = "node_enter"
     NODE_EXIT = "node_exit"
     NODE_RETRY = "node_retry"
     NODE_SKIP = "node_skip"
+    STAGE_STARTED = "stage_started"
+    STAGE_COMPLETED = "stage_completed"
+    STAGE_FAILED = "stage_failed"
+    STAGE_RETRYING = "stage_retrying"
+
+    # Edge traversal
     EDGE_FOLLOW = "edge_follow"
+
+    # Checkpoint
     CHECKPOINT_SAVE = "checkpoint_save"
     CHECKPOINT_LOAD = "checkpoint_load"
+
+    # Goal gates
     GOAL_GATE_CHECK = "goal_gate_check"
     GOAL_GATE_FAIL = "goal_gate_fail"
+
+    # Parallel execution
     PARALLEL_FAN_OUT = "parallel_fan_out"
     PARALLEL_FAN_IN = "parallel_fan_in"
+    PARALLEL_STARTED = "parallel_started"
+    PARALLEL_BRANCH_STARTED = "parallel_branch_started"
+    PARALLEL_BRANCH_COMPLETED = "parallel_branch_completed"
+    PARALLEL_COMPLETED = "parallel_completed"
+
+    # Human interaction
     HUMAN_PROMPT = "human_prompt"
     HUMAN_ANSWER = "human_answer"
+    INTERVIEW_STARTED = "interview_started"
+    INTERVIEW_COMPLETED = "interview_completed"
+    INTERVIEW_TIMEOUT = "interview_timeout"
+
+    # Transforms & validation
     TRANSFORM_APPLY = "transform_apply"
     VALIDATION_COMPLETE = "validation_complete"
+
+    # Error
     ERROR = "error"
 
 

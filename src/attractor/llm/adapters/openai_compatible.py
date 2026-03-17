@@ -106,6 +106,25 @@ class OpenAICompatibleAdapter(ProviderAdapter):
             payload["max_tokens"] = request.max_tokens
         if request.temperature is not None:
             payload["temperature"] = request.temperature
+        if request.top_p is not None:
+            payload["top_p"] = request.top_p
+        if request.stop_sequences:
+            payload["stop"] = request.stop_sequences
+        if request.response_format:
+            fmt = request.response_format
+            if hasattr(fmt, 'type'):
+                fmt_type = fmt.type
+                fmt_schema = getattr(fmt, 'json_schema', None)
+            else:
+                fmt_type = fmt.get("type", "")
+                fmt_schema = fmt.get("json_schema")
+            if fmt_type == "json_object":
+                payload["response_format"] = {"type": "json_object"}
+            elif fmt_type == "json_schema" and fmt_schema:
+                payload["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": fmt_schema,
+                }
 
         # Tools
         if request.tools:

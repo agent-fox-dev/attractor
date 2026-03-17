@@ -446,6 +446,19 @@ def test_accelerator_dash_format():
     assert label == "Quit"
 
 
+def test_event_types_completeness():
+    """Event types include spec-required stage and parallel events."""
+    from attractor.pipeline.events import PipelineEventKind
+
+    assert hasattr(PipelineEventKind, "STAGE_STARTED")
+    assert hasattr(PipelineEventKind, "STAGE_COMPLETED")
+    assert hasattr(PipelineEventKind, "STAGE_FAILED")
+    assert hasattr(PipelineEventKind, "PARALLEL_STARTED")
+    assert hasattr(PipelineEventKind, "PARALLEL_BRANCH_STARTED")
+    assert hasattr(PipelineEventKind, "INTERVIEW_STARTED")
+    assert hasattr(PipelineEventKind, "INTERVIEW_COMPLETED")
+
+
 def test_checkpoint_save_and_resume():
     dot = """
     digraph T {

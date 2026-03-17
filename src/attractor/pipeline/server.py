@@ -61,6 +61,8 @@ class PipelineRun:
     pending_questions: dict[str, Question] = field(default_factory=dict)
     context_snapshot: dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
+    dot_source: str = ""
+    checkpoint_data: dict[str, Any] | None = None
     error: str | None = None
 
 
@@ -118,6 +120,7 @@ class PipelineManager:
         thread = threading.Thread(target=_run_thread, daemon=True)
         pipeline_run.thread = thread
         pipeline_run.name = f"pipeline-{run_id[:8]}"
+        pipeline_run.dot_source = dot_source
         thread.start()
 
         return pipeline_run
@@ -223,6 +226,32 @@ class PipelineHTTPHandler(BaseHTTPRequestHandler):
                 self._send_error("Pipeline not found", 404)
                 return
             self._send_json(run.context_snapshot)
+            return
+
+        # GET /pipelines/{id}/checkpoint
+        if len(parts) == 3 and parts[0] == "pipelines" and parts[2] == "checkpoint":
+            run = self.manager.get_run(parts[1])
+            if run is None:
+                self._send_error("Pipeline not found", 404)
+                return
+            checkpoint = getattr(run, "checkpoint_data", None)
+            if checkpoint is None:
+                self._send_json({"status": "no_checkpoint"})
+            else:
+                self._send_json(checkpoint)
+            return
+
+        # GET /pipelines/{id}/graph
+        if len(parts) == 3 and parts[0] == "pipelines" and parts[2] == "graph":
+            run = self.manager.get_run(parts[1])
+            if run is None:
+                self._send_error("Pipeline not found", 404)
+                return
+            dot_source = getattr(run, "dot_source", "")
+            if not dot_source:
+                self._send_json({"format": "dot", "content": ""})
+            else:
+                self._send_json({"format": "dot", "content": dot_source})
             return
 
         self._send_error("Not found", 404)

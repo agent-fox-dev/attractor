@@ -252,6 +252,9 @@ class OpenAIAdapter(ProviderAdapter):
                     },
                 }
 
+        if request.stop_sequences:
+            payload["stop"] = request.stop_sequences
+
         if request.tools:
             payload["tools"] = [self._convert_tool(t) for t in request.tools]
 

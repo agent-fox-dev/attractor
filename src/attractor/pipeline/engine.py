@@ -324,10 +324,14 @@ def run(
     start_node = find_start_node(graph)
     current_node: Node | None = start_node
 
+    # Track fidelity degradation on resume
+    _degrade_fidelity_on_resume = False
     if config.resume_from and config.resume_from.current_node:
         resume_id = config.resume_from.current_node
         if resume_id in graph.nodes:
             current_node = graph.nodes[resume_id]
+            # Degrade fidelity for first resumed node if previous used "full"
+            _degrade_fidelity_on_resume = True
 
     emitter.emit(PipelineEventKind.PIPELINE_START, graph_name=graph.name)
 
@@ -358,6 +362,16 @@ def run(
 
         emitter.emit(PipelineEventKind.NODE_ENTER, node_id=node.id, step=step)
         context.append_log(f"[step {step}] Entering node '{node.id}'")
+
+        # Apply fidelity degradation on first resumed node
+        if _degrade_fidelity_on_resume:
+            orig_fidelity = node.attrs.get("fidelity", "")
+            if orig_fidelity == "full":
+                node.attrs["fidelity"] = "summary:high"
+                context.append_log(
+                    f"[resume] Degraded fidelity full -> summary:high for '{node.id}'"
+                )
+            _degrade_fidelity_on_resume = False
 
         # Resolve handler
         try:

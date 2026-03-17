@@ -321,6 +321,28 @@ def test_abort_signal_on_request():
     assert req.abort_signal.aborted is False
 
 
+def test_catalog_legacy_models():
+    """Catalog includes legacy models for all providers."""
+    from attractor.llm.catalog import get_model_info, list_models
+
+    # Anthropic legacy
+    assert get_model_info("claude-3-5-sonnet") is not None
+    assert get_model_info("claude-3-opus") is not None
+    assert get_model_info("claude-haiku") is not None
+
+    # OpenAI legacy
+    assert get_model_info("gpt-4o") is not None
+    assert get_model_info("o3") is not None
+
+    # Gemini legacy
+    assert get_model_info("gemini-2.5-pro") is not None
+
+    # Verify we have a reasonable number of models per provider
+    assert len(list_models("anthropic")) >= 4
+    assert len(list_models("openai")) >= 5
+    assert len(list_models("gemini")) >= 4
+
+
 def test_client_complete_checks_abort():
     import pytest
     import asyncio
