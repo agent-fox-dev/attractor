@@ -612,6 +612,24 @@ class StreamResult:
         """Return text accumulated so far."""
         return "".join(self._text_parts)
 
+    @property
+    def partial_response(self) -> Response | None:
+        """Return the accumulated response state at any point during streaming."""
+        if not self._text_parts and not self._tool_calls:
+            return None
+        parts: list[ContentPart] = []
+        text = "".join(self._text_parts)
+        if text:
+            parts.append(ContentPart(kind=ContentKind.TEXT, text=text))
+        for tc in self._tool_calls:
+            parts.append(ContentPart(kind=ContentKind.TOOL_CALL, tool_call=tc))
+        return Response(
+            model="",
+            content=parts,
+            usage=self._usage,
+            finish_reason=self._finish_reason or FinishReason.STOP,
+        )
+
     def response(self) -> Response:
         """Return the fully assembled Response (only valid after iteration completes)."""
         parts: list[ContentPart] = []

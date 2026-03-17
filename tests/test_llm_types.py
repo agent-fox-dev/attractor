@@ -262,6 +262,31 @@ def test_image_data_from_path_not_found():
         ImageData.from_path("/nonexistent/image.png")
 
 
+def test_stream_result_partial_response():
+    from attractor.llm.high_level import StreamResult
+
+    sr = StreamResult.__new__(StreamResult)
+    sr._text_parts = ["Hello"]
+    sr._tool_calls = []
+    sr._usage = Usage()
+    sr._finish_reason = None
+    sr._done = False
+
+    # partial_response returns accumulated state during streaming
+    pr = sr.partial_response
+    assert pr is not None
+    assert pr.text == "Hello"
+
+    # When empty, returns None
+    sr2 = StreamResult.__new__(StreamResult)
+    sr2._text_parts = []
+    sr2._tool_calls = []
+    sr2._usage = Usage()
+    sr2._finish_reason = None
+    sr2._done = False
+    assert sr2.partial_response is None
+
+
 def test_stream_result_partial_text():
     from attractor.llm.high_level import StreamResult
 
