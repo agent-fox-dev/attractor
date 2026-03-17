@@ -428,6 +428,12 @@ def test_adapter_timeout_defaults():
     assert t.stream_read == 60.0
 
 
+def test_step_finish_event_kind():
+    from attractor.llm.types import StreamEventKind
+    assert hasattr(StreamEventKind, "STEP_FINISH")
+    assert StreamEventKind.STEP_FINISH == "step_finish"
+
+
 def test_generate_result_convenience_properties():
     from attractor.llm.high_level import GenerateResult, StepResult
 

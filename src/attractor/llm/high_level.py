@@ -34,6 +34,7 @@ from attractor.llm.types import (
     Response,
     ResponseFormat,
     RetryPolicy,
+    Role,
     StreamEvent,
     StreamEventKind,
     ToolCallData,
@@ -465,33 +466,88 @@ async def stream(
     provider_options: dict[str, Any] | None = None,
     client: Client | None = None,
     max_tool_rounds: int = 0,
+    tool_executor: ToolExecutor | None = None,
     abort_signal: AbortSignal | None = None,
 ) -> AsyncIterator[StreamEvent]:
     """Stream LLM response events.
 
-    Accepts the same parameters as :func:`generate` but returns an async
-    iterator of :class:`StreamEvent` objects instead of a single
-    :class:`Response`.
+    When *max_tool_rounds* > 0 and a *tool_executor* is provided, the
+    stream pauses on tool calls, executes them, emits a STEP_FINISH event,
+    then resumes streaming the model's next response.
     """
     effective_client = client or _get_default_client()
     messages = _coerce_messages(prompt_or_messages)
     coerced_tools = _coerce_tools(tools)
 
-    request = Request(
-        model=model,
-        messages=messages,
-        tools=coerced_tools,
-        tool_choice=tool_choice,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        reasoning_effort=reasoning_effort,
-        provider=provider,
-        provider_options=provider_options,
-        abort_signal=abort_signal,
-    )
+    for _round in range(max(max_tool_rounds, 0) + 1):
+        request = Request(
+            model=model,
+            messages=messages,
+            tools=coerced_tools,
+            tool_choice=tool_choice,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            reasoning_effort=reasoning_effort,
+            provider=provider,
+            provider_options=provider_options,
+            abort_signal=abort_signal,
+        )
 
-    async for event in effective_client.stream(request):
-        yield event
+        # Accumulate text and tool calls from the stream
+        text_parts: list[str] = []
+        tool_calls: list[ToolCallData] = []
+
+        async for event in effective_client.stream(request):
+            if event.kind == StreamEventKind.CONTENT_DELTA:
+                delta = (event.data or {}).get("text", "")
+                if delta:
+                    text_parts.append(delta)
+            elif event.kind == StreamEventKind.TOOL_CALL_END:
+                if event.content_part and event.content_part.tool_call:
+                    tool_calls.append(event.content_part.tool_call)
+            yield event
+
+        # If no tool calls or no executor, we're done
+        if not tool_calls or tool_executor is None or _round >= max_tool_rounds:
+            break
+
+        # Execute tools
+        tool_results: list[ToolResultData] = []
+        for tc in tool_calls:
+            try:
+                result = tool_executor(tc)
+                if isinstance(result, str):
+                    tool_results.append(ToolResultData(tool_call_id=tc.id, content=result))
+                else:
+                    tool_results.append(result)
+            except Exception as exc:
+                tool_results.append(ToolResultData(
+                    tool_call_id=tc.id,
+                    content=f"Tool error: {exc}",
+                    is_error=True,
+                ))
+
+        # Emit step_finish event
+        yield StreamEvent(
+            kind=StreamEventKind.STEP_FINISH,
+            data={"tool_calls": len(tool_calls), "tool_results": len(tool_results)},
+        )
+
+        # Reconstruct messages for next round
+        parts: list[ContentPart] = []
+        full_text = "".join(text_parts)
+        if full_text:
+            parts.append(ContentPart(kind=ContentKind.TEXT, text=full_text))
+        for tc in tool_calls:
+            parts.append(ContentPart(kind=ContentKind.TOOL_CALL, tool_call=tc))
+        messages.append(Message(role=Role.ASSISTANT, content=parts))
+
+        for tr in tool_results:
+            messages.append(Message.tool_result(
+                tool_call_id=tr.tool_call_id,
+                content=tr.content,
+                is_error=tr.is_error,
+            ))
 
 
 # ---------------------------------------------------------------------------
