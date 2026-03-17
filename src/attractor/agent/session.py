@@ -704,6 +704,7 @@ class Session:
                 # like a question (no definitive answer), set AWAITING_INPUT
                 if response.finish_reason == FinishReason.STOP and response.text.rstrip().endswith("?"):
                     self.state = SessionState.AWAITING_INPUT
+                    self._emit(EventKind.AWAITING_INPUT, text=response.text)
                     self._emit(EventKind.ASSISTANT_TEXT_END, text=response.text, awaiting_input=True)
                 break
 
@@ -830,6 +831,7 @@ class Session:
             if not tool_calls:
                 if finish_reason == FinishReason.STOP and full_text.rstrip().endswith("?"):
                     self.state = SessionState.AWAITING_INPUT
+                    self._emit(EventKind.AWAITING_INPUT, text=full_text)
                 break
 
             round_count += 1

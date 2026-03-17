@@ -417,12 +417,14 @@ class AnthropicAdapter(ProviderAdapter):
             if btype == "text":
                 content.append(ContentPart(kind=ContentKind.TEXT, text=block["text"]))
             elif btype == "tool_use":
+                raw_input = block.get("input", {})
                 content.append(ContentPart(
                     kind=ContentKind.TOOL_CALL,
                     tool_call=ToolCallData(
                         id=block["id"],
                         name=block["name"],
-                        arguments=block.get("input", {}),
+                        arguments=raw_input,
+                        raw_arguments=json.dumps(raw_input) if isinstance(raw_input, dict) else str(raw_input),
                     ),
                 ))
             elif btype == "thinking":
@@ -446,6 +448,7 @@ class AnthropicAdapter(ProviderAdapter):
             total_tokens=usage_raw.get("input_tokens", 0) + usage_raw.get("output_tokens", 0),
             cache_read_tokens=usage_raw.get("cache_read_input_tokens"),
             cache_write_tokens=usage_raw.get("cache_creation_input_tokens"),
+            raw=usage_raw,
         )
 
         stop_reason = raw.get("stop_reason", "end_turn")
@@ -458,6 +461,7 @@ class AnthropicAdapter(ProviderAdapter):
             content=content,
             usage=usage,
             finish_reason=finish,
+            raw=raw,
             provider_data=raw,
         )
 
@@ -563,6 +567,7 @@ class AnthropicAdapter(ProviderAdapter):
                 yield StreamEvent(
                     kind=StreamEventKind.CONTENT_DELTA,
                     data={"text": text},
+                    delta=text,
                     content_part=ContentPart(kind=ContentKind.TEXT, text=text),
                 )
             elif dtype == "input_json_delta":
@@ -571,11 +576,13 @@ class AnthropicAdapter(ProviderAdapter):
                     data={"partial_json": delta.get("partial_json", "")},
                 )
             elif dtype == "thinking_delta":
+                thinking_text = delta.get("thinking", "")
                 yield StreamEvent(
                     kind=StreamEventKind.THINKING_DELTA,
+                    reasoning_delta=thinking_text,
                     content_part=ContentPart(
                         kind=ContentKind.THINKING,
-                        thinking=ThinkingData(text=delta.get("thinking", "")),
+                        thinking=ThinkingData(text=thinking_text),
                     ),
                 )
             elif dtype == "signature_delta":
@@ -606,7 +613,9 @@ class AnthropicAdapter(ProviderAdapter):
             yield StreamEvent(kind=StreamEventKind.DONE)
 
         elif etype == "error":
+            error_data = data.get("error", data)
             yield StreamEvent(
                 kind=StreamEventKind.ERROR,
-                data=data.get("error", data),
+                data=error_data,
+                error=str(error_data.get("message", error_data)) if isinstance(error_data, dict) else str(error_data),
             )

@@ -98,6 +98,22 @@ class GenerateResult:
     def tool_calls(self) -> list[ToolCallData]:
         return self.response.tool_calls
 
+    @property
+    def reasoning(self) -> str:
+        return self.response.reasoning
+
+    @property
+    def tool_results(self) -> list[ToolResultData]:
+        """All tool results across all steps."""
+        results: list[ToolResultData] = []
+        for step in self.steps:
+            results.extend(step.tool_results)
+        return results
+
+    @property
+    def finish_reason(self) -> FinishReason:
+        return self.response.finish_reason
+
 
 # ---------------------------------------------------------------------------
 # Stop conditions

@@ -2,11 +2,11 @@
 
 from attractor.llm.types import (
     Message, Role, ContentPart, ContentKind, Usage,
-    ToolDefinition, Request, Response, FinishReason,
+    ToolDefinition, ToolCallData, ToolResultData, Request, Response, FinishReason,
     ModelInfo, ProviderError, AuthenticationError, RateLimitError,
     ServerError, NetworkError, ContentFilterError, InvalidRequestError,
     RetryPolicy, ResponseFormat, RateLimitInfo, ResponseWarning,
-    ThinkingData,
+    ThinkingData, StreamEvent,
 )
 from attractor.llm.high_level import GenerateResult, StepResult
 from attractor.llm.catalog import get_model_info, list_models, get_latest_model
@@ -357,3 +357,94 @@ def test_client_complete_checks_abort():
 
     with pytest.raises(AbortError):
         asyncio.run(client.complete(req))
+
+
+def test_tool_call_data_raw_arguments():
+    tc = ToolCallData(id="1", name="test", arguments={"key": "val"}, raw_arguments='{"key": "val"}')
+    assert tc.raw_arguments == '{"key": "val"}'
+
+
+def test_usage_raw_field():
+    u = Usage(input_tokens=10, output_tokens=5, raw={"input_tokens": 10})
+    assert u.raw is not None
+    assert u.raw["input_tokens"] == 10
+
+
+def test_usage_addition_preserves_raw():
+    u1 = Usage(input_tokens=10, output_tokens=5, raw={"first": True})
+    u2 = Usage(input_tokens=20, output_tokens=10, raw={"second": True})
+    total = u1 + u2
+    assert total.raw == {"second": True}
+
+
+def test_response_raw_field():
+    r = Response(id="r1", model="test", raw={"id": "r1", "model": "test"})
+    assert r.raw is not None
+    assert r.raw["id"] == "r1"
+
+
+def test_response_message_property():
+    from attractor.llm.types import Role
+    r = Response(
+        id="r1", model="test",
+        content=[ContentPart(kind=ContentKind.TEXT, text="hello")],
+    )
+    msg = r.message
+    assert msg.role == Role.ASSISTANT
+    assert msg.text == "hello"
+
+
+def test_stream_event_delta_fields():
+    from attractor.llm.types import StreamEventKind
+    evt = StreamEvent(
+        kind=StreamEventKind.CONTENT_DELTA,
+        delta="hello",
+        reasoning_delta=None,
+    )
+    assert evt.delta == "hello"
+    assert evt.reasoning_delta is None
+
+    evt2 = StreamEvent(
+        kind=StreamEventKind.THINKING_DELTA,
+        reasoning_delta="step 1",
+    )
+    assert evt2.reasoning_delta == "step 1"
+
+
+def test_stream_event_error_field():
+    from attractor.llm.types import StreamEventKind
+    evt = StreamEvent(
+        kind=StreamEventKind.ERROR,
+        error="something failed",
+    )
+    assert evt.error == "something failed"
+
+
+def test_adapter_timeout_defaults():
+    from attractor.llm.types import AdapterTimeout
+    t = AdapterTimeout()
+    assert t.connect == 10.0
+    assert t.request == 300.0
+    assert t.stream_read == 60.0
+
+
+def test_generate_result_convenience_properties():
+    from attractor.llm.high_level import GenerateResult, StepResult
+
+    resp = Response(
+        id="r1", model="test",
+        content=[
+            ContentPart(kind=ContentKind.TEXT, text="answer"),
+            ContentPart(kind=ContentKind.THINKING, thinking=ThinkingData(text="reasoning")),
+        ],
+    )
+    tr = ToolResultData(tool_call_id="tc1", content="output")
+    result = GenerateResult(
+        response=resp,
+        steps=[StepResult(response=resp, tool_results=[tr])],
+        total_usage=Usage(input_tokens=100, output_tokens=50),
+    )
+    assert result.reasoning == "reasoning"
+    assert len(result.tool_results) == 1
+    assert result.tool_results[0].content == "output"
+    assert result.finish_reason == FinishReason.STOP

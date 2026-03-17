@@ -366,12 +366,14 @@ class GeminiAdapter(ProviderAdapter):
                     ))
                 elif "functionCall" in part:
                     fc = part["functionCall"]
+                    raw_args = fc.get("args", {})
                     content.append(ContentPart(
                         kind=ContentKind.TOOL_CALL,
                         tool_call=ToolCallData(
                             id=fc.get("name", ""),  # Gemini uses name as id
                             name=fc.get("name", ""),
-                            arguments=fc.get("args", {}),
+                            arguments=raw_args,
+                            raw_arguments=json.dumps(raw_args) if isinstance(raw_args, dict) else str(raw_args),
                         ),
                     ))
 
@@ -381,6 +383,7 @@ class GeminiAdapter(ProviderAdapter):
             output_tokens=usage_raw.get("candidatesTokenCount", 0),
             total_tokens=usage_raw.get("totalTokenCount", 0),
             reasoning_tokens=usage_raw.get("thoughtsTokenCount"),
+            raw=usage_raw,
         )
 
         finish = self._map_finish_reason(finish_reason_str, content)
@@ -392,6 +395,7 @@ class GeminiAdapter(ProviderAdapter):
             content=content,
             usage=usage,
             finish_reason=finish,
+            raw=raw,
             provider_data=raw,
         )
 
@@ -490,15 +494,18 @@ class GeminiAdapter(ProviderAdapter):
                 yield StreamEvent(
                     kind=StreamEventKind.CONTENT_DELTA,
                     data={"text": text},
+                    delta=text,
                     content_part=ContentPart(kind=ContentKind.TEXT, text=text),
                 )
 
             elif "text" in part and part.get("thought"):
+                thinking_text = part["text"]
                 yield StreamEvent(
                     kind=StreamEventKind.THINKING_DELTA,
+                    reasoning_delta=thinking_text,
                     content_part=ContentPart(
                         kind=ContentKind.THINKING,
-                        thinking=ThinkingData(text=part["text"]),
+                        thinking=ThinkingData(text=thinking_text),
                     ),
                 )
 

@@ -581,3 +581,38 @@ def test_human_handler_emits_interview_events():
     kinds = [e.kind for e in events]
     assert PipelineEventKind.INTERVIEW_STARTED in kinds
     assert PipelineEventKind.INTERVIEW_COMPLETED in kinds
+
+
+def test_goal_gate_accepts_partial_success():
+    """Goal gates should pass for PARTIAL_SUCCESS status."""
+    from attractor.pipeline.engine import check_goal_gates
+
+    graph = parse_dot("""
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        impl  [shape=box, prompt="Implement", goal_gate=true]
+        start -> impl -> exit
+    }
+    """)
+    node_outcomes = {
+        "impl": Outcome(status=StageStatus.PARTIAL_SUCCESS),
+    }
+    ok, failing = check_goal_gates(graph, node_outcomes)
+    assert ok is True
+    assert failing is None
+
+
+def test_goal_gate_terminal_check():
+    """Goal gate check happens at terminal node per spec Section 3.2."""
+    dot = """
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        impl  [shape=box, prompt="Implement", goal_gate=true]
+        start -> impl -> exit
+    }
+    """
+    # This should succeed because the simulated backend produces SUCCESS
+    outcome = _run(dot)
+    assert outcome.status == StageStatus.SUCCESS

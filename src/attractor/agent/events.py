@@ -17,6 +17,7 @@ class EventKind(StrEnum):
     TOOL_CALL_OUTPUT_DELTA = "tool_call_output_delta"
     TOOL_CALL_END = "tool_call_end"
     STEERING_INJECTED = "steering_injected"
+    AWAITING_INPUT = "awaiting_input"
     TURN_LIMIT = "turn_limit"
     LOOP_DETECTION = "loop_detection"
     ERROR = "error"

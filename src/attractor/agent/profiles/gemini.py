@@ -17,8 +17,41 @@ from attractor.agent.tools.registry import RegisteredTool, ToolRegistry
 
 
 # ---------------------------------------------------------------------------
-# list_dir tool (Gemini-specific)
+# Gemini-specific tools
 # ---------------------------------------------------------------------------
+
+READ_MANY_FILES_DEF = ToolDefinition(
+    name="read_many_files",
+    description=(
+        "Read multiple files in a single call. More efficient than calling "
+        "read_file repeatedly. Returns the contents of each file separated by headers."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "paths": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "List of file paths to read.",
+            },
+        },
+        "required": ["paths"],
+    },
+)
+
+
+def _exec_read_many_files(arguments: dict[str, Any], env: ExecutionEnvironment) -> str:
+    """Execute the read_many_files tool."""
+    paths: list[str] = arguments["paths"]
+    results: list[str] = []
+    for path in paths:
+        try:
+            content = env.read_file(path)
+            results.append(f"=== {path} ===\n{content}")
+        except Exception as exc:
+            results.append(f"=== {path} ===\nError: {exc}")
+    return "\n\n".join(results)
+
 
 LIST_DIR_DEF = ToolDefinition(
     name="list_dir",
@@ -85,7 +118,10 @@ class GeminiProfile(ProviderProfile):
         # Register core tools
         register_core_tools(self.tool_registry, _PlaceholderEnv())
 
-        # Register list_dir (Gemini-specific)
+        # Register Gemini-specific tools
+        self.tool_registry.register(
+            RegisteredTool(definition=READ_MANY_FILES_DEF, executor=_exec_read_many_files)
+        )
         self.tool_registry.register(
             RegisteredTool(definition=LIST_DIR_DEF, executor=_exec_list_dir)
         )

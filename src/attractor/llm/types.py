@@ -135,6 +135,7 @@ class ToolCallData(BaseModel):
     id: str
     name: str
     arguments: dict[str, Any] | str = Field(default_factory=dict)
+    raw_arguments: str | None = None
     type: str = "function"
 
 
@@ -283,6 +284,7 @@ class Usage(BaseModel):
     reasoning_tokens: int | None = None
     cache_read_tokens: int | None = None
     cache_write_tokens: int | None = None
+    raw: dict[str, Any] | None = None
 
     def __add__(self, other: Usage) -> Usage:
         def _sum_optional(a: int | None, b: int | None) -> int | None:
@@ -297,6 +299,7 @@ class Usage(BaseModel):
             reasoning_tokens=_sum_optional(self.reasoning_tokens, other.reasoning_tokens),
             cache_read_tokens=_sum_optional(self.cache_read_tokens, other.cache_read_tokens),
             cache_write_tokens=_sum_optional(self.cache_write_tokens, other.cache_write_tokens),
+            raw=other.raw or self.raw,
         )
 
 
@@ -377,7 +380,8 @@ class Response(BaseModel):
     content: list[ContentPart] = Field(default_factory=list)
     usage: Usage = Field(default_factory=Usage)
     finish_reason: FinishReason = FinishReason.STOP
-    provider_data: dict[str, Any] | None = None
+    raw: dict[str, Any] | None = None
+    provider_data: dict[str, Any] | None = None  # Alias for raw (backwards compat)
     warnings: list[ResponseWarning] = Field(default_factory=list)
     rate_limit: RateLimitInfo | None = None
 
@@ -407,6 +411,11 @@ class Response(BaseModel):
             if part.kind == ContentKind.THINKING and part.thinking and part.thinking.text
         )
 
+    @property
+    def message(self) -> "Message":
+        """Return the assistant's response as a Message object."""
+        return Message(role=Role.ASSISTANT, content=self.content)
+
 
 # ---------------------------------------------------------------------------
 # StreamEvent
@@ -421,6 +430,10 @@ class StreamEvent(BaseModel):
     content_part: ContentPart | None = None
     usage: Usage | None = None
     finish_reason: FinishReason | None = None
+    delta: str | None = None
+    reasoning_delta: str | None = None
+    error: str | None = None
+    raw: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -454,6 +467,14 @@ class TimeoutConfig(BaseModel):
 
     total: float | None = None
     per_step: float | None = None
+
+
+class AdapterTimeout(BaseModel):
+    """Granular timeout settings for provider adapters (Section 4.7)."""
+
+    connect: float = 10.0
+    request: float = 300.0
+    stream_read: float = 60.0
 
 
 # ---------------------------------------------------------------------------

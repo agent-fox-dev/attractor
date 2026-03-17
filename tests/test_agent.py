@@ -273,3 +273,19 @@ def test_subagent_depth_limit():
     result = spawn({"task": "test task"}, env)
     assert "depth limit" in result.lower()
     assert not called  # Factory should not be called
+
+
+def test_awaiting_input_event_kind():
+    """AWAITING_INPUT event kind exists in EventKind enum."""
+    from attractor.agent.events import EventKind
+
+    assert hasattr(EventKind, "AWAITING_INPUT")
+    assert EventKind.AWAITING_INPUT == "awaiting_input"
+
+
+def test_gemini_read_many_files_tool():
+    """Gemini profile includes read_many_files tool."""
+    profile = GeminiProfile()
+    tool_names = [t.name for t in profile.tools()]
+    assert "read_many_files" in tool_names
+    assert "list_dir" in tool_names

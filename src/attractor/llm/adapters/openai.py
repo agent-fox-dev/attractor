@@ -380,6 +380,7 @@ class OpenAIAdapter(ProviderAdapter):
                         id=item.get("call_id", item.get("id", "")),
                         name=item.get("name", ""),
                         arguments=args,
+                        raw_arguments=args_str if isinstance(args_str, str) else json.dumps(args_str),
                     ),
                 ))
 
@@ -398,6 +399,7 @@ class OpenAIAdapter(ProviderAdapter):
             output_tokens=usage_raw.get("output_tokens", 0),
             total_tokens=usage_raw.get("total_tokens", 0),
             reasoning_tokens=reasoning_tokens,
+            raw=usage_raw,
         )
 
         # Determine finish reason.
@@ -411,6 +413,7 @@ class OpenAIAdapter(ProviderAdapter):
             content=content,
             usage=usage,
             finish_reason=finish,
+            raw=raw,
             provider_data=raw,
         )
 
@@ -484,6 +487,7 @@ class OpenAIAdapter(ProviderAdapter):
             yield StreamEvent(
                 kind=StreamEventKind.CONTENT_DELTA,
                 data={"text": text},
+                delta=text,
                 content_part=ContentPart(
                     kind=ContentKind.TEXT,
                     text=text,
@@ -533,11 +537,13 @@ class OpenAIAdapter(ProviderAdapter):
                 )
 
         elif etype == "response.reasoning_summary_text.delta":
+            reasoning_text = data.get("delta", "")
             yield StreamEvent(
                 kind=StreamEventKind.THINKING_DELTA,
+                reasoning_delta=reasoning_text,
                 content_part=ContentPart(
                     kind=ContentKind.THINKING,
-                    thinking=ThinkingData(text=data.get("delta", "")),
+                    thinking=ThinkingData(text=reasoning_text),
                 ),
             )
 
@@ -560,4 +566,5 @@ class OpenAIAdapter(ProviderAdapter):
             yield StreamEvent(
                 kind=StreamEventKind.ERROR,
                 data=data,
+                error=str(data.get("error", data)),
             )

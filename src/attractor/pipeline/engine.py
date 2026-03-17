@@ -190,7 +190,7 @@ def check_goal_gates(
         if not node.goal_gate:
             continue
         outcome = node_outcomes.get(node.id)
-        if outcome is None or outcome.status != StageStatus.SUCCESS:
+        if outcome is None or outcome.status not in (StageStatus.SUCCESS, StageStatus.PARTIAL_SUCCESS):
             return False, node
     return True, None
 
@@ -418,40 +418,44 @@ def run(
             cp.save(cp_path)
             emitter.emit(PipelineEventKind.CHECKPOINT_SAVE, path=str(cp_path))
 
-        # Terminal node?
+        # Terminal node — check goal gates before exiting (spec Section 3.2)
         if is_terminal(node):
+            gates_ok, failing_gate = check_goal_gates(graph, node_outcomes)
+            if not gates_ok and failing_gate:
+                emitter.emit(
+                    PipelineEventKind.GOAL_GATE_FAIL,
+                    node_id=failing_gate.id,
+                )
+                # Jump to retry_target if one exists instead of exiting
+                gate_policy = build_retry_policy(failing_gate, graph)
+                if gate_policy.retry_target and gate_policy.retry_target in graph.nodes:
+                    current_node = graph.nodes[gate_policy.retry_target]
+                    emitter.emit(
+                        PipelineEventKind.EDGE_FOLLOW,
+                        from_node=node.id,
+                        to_node=gate_policy.retry_target,
+                        reason="goal_gate_retry",
+                    )
+                    continue
+                elif gate_policy.fallback_retry_target and gate_policy.fallback_retry_target in graph.nodes:
+                    current_node = graph.nodes[gate_policy.fallback_retry_target]
+                    emitter.emit(
+                        PipelineEventKind.EDGE_FOLLOW,
+                        from_node=node.id,
+                        to_node=gate_policy.fallback_retry_target,
+                        reason="goal_gate_fallback",
+                    )
+                    continue
             final_outcome = outcome
             break
 
-        # Check goal gates
+        # Check goal gates (non-terminal nodes)
         gates_ok, failing_gate = check_goal_gates(graph, node_outcomes)
         if not gates_ok and failing_gate:
             emitter.emit(
                 PipelineEventKind.GOAL_GATE_FAIL,
                 node_id=failing_gate.id,
             )
-            # Goal gate failure doesn't halt -- it's informational
-            # unless the node itself failed
-            if outcome.status == StageStatus.FAIL:
-                # Check for retry target
-                if policy.retry_target and policy.retry_target in graph.nodes:
-                    current_node = graph.nodes[policy.retry_target]
-                    emitter.emit(
-                        PipelineEventKind.EDGE_FOLLOW,
-                        from_node=node.id,
-                        to_node=policy.retry_target,
-                        reason="retry_target",
-                    )
-                    continue
-                elif policy.fallback_retry_target and policy.fallback_retry_target in graph.nodes:
-                    current_node = graph.nodes[policy.fallback_retry_target]
-                    emitter.emit(
-                        PipelineEventKind.EDGE_FOLLOW,
-                        from_node=node.id,
-                        to_node=policy.fallback_retry_target,
-                        reason="fallback_retry_target",
-                    )
-                    continue
 
         # Handle failure with retry/fallback targets
         if outcome.status == StageStatus.FAIL:
