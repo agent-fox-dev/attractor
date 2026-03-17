@@ -29,18 +29,32 @@ if TYPE_CHECKING:
 
 
 _ACCEL_PATTERN = re.compile(r"&(\w)")
+_BRACKET_PATTERN = re.compile(r"\[(\w)\]\s*(.*)")
 
 
 def _parse_accelerator(label: str) -> tuple[str, str]:
-    """Extract an accelerator key from a label like '&Yes' -> ('y', 'Yes').
+    """Extract an accelerator key from a label.
+
+    Supports two formats:
+      - ``&Yes``  -> key='y', label='Yes'
+      - ``[Y] Yes`` -> key='y', label='Yes'
 
     Returns (key, clean_label).
     """
+    # Try bracket format first: [Y] Yes
+    bm = _BRACKET_PATTERN.match(label.strip())
+    if bm:
+        key = bm.group(1).lower()
+        clean = bm.group(2).strip() or label
+        return key, clean
+
+    # Try ampersand format: &Yes
     m = _ACCEL_PATTERN.search(label)
     if m:
         key = m.group(1).lower()
         clean = label.replace(f"&{m.group(1)}", m.group(1), 1)
         return key, clean
+
     return label.lower().replace(" ", "_"), label
 
 
@@ -90,6 +104,15 @@ class WaitForHumanHandler(Handler):
 
         # Map answer to outcome
         if answer.value == AnswerValue.TIMEOUT:
+            # Check for default_choice on timeout
+            default_choice = node.attrs.get("human.default_choice", "")
+            if default_choice and default_choice in key_to_target:
+                return Outcome(
+                    status=StageStatus.SUCCESS,
+                    preferred_label=default_choice,
+                    suggested_next_ids=[key_to_target[default_choice]],
+                    context_updates={"human_input": f"timeout:default:{default_choice}"},
+                )
             return Outcome(
                 status=StageStatus.FAIL,
                 failure_reason="Human input timed out.",

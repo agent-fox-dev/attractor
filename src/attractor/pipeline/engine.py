@@ -227,6 +227,11 @@ def execute_with_retry(
 
         last_outcome = outcome
 
+        # auto_status: if handler wrote no explicit status, synthesize SUCCESS
+        if node.auto_status and outcome.status == StageStatus.FAIL and not outcome.failure_reason:
+            outcome = Outcome(status=StageStatus.SUCCESS, notes="auto_status: synthesized success")
+            last_outcome = outcome
+
         if outcome.status in (StageStatus.SUCCESS, StageStatus.PARTIAL_SUCCESS, StageStatus.SKIPPED):
             return outcome
 
@@ -253,7 +258,18 @@ def execute_with_retry(
         # No more retries
         break
 
-    return last_outcome or Outcome(status=StageStatus.FAIL, failure_reason="Unknown error.")
+    final = last_outcome or Outcome(status=StageStatus.FAIL, failure_reason="Unknown error.")
+
+    # allow_partial: accept PARTIAL_SUCCESS when retries exhausted instead of FAIL
+    if final.status == StageStatus.FAIL and node.allow_partial:
+        final = Outcome(
+            status=StageStatus.PARTIAL_SUCCESS,
+            failure_reason=final.failure_reason,
+            notes="allow_partial: converted FAIL to PARTIAL_SUCCESS after retries exhausted",
+            context_updates=final.context_updates,
+        )
+
+    return final
 
 
 # ---------------------------------------------------------------------------

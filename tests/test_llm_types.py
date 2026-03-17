@@ -220,3 +220,79 @@ def test_generate_result():
     assert result.text == "hello"
     assert result.total_usage.input_tokens == 100
     assert len(result.steps) == 1
+
+
+def test_message_developer():
+    msg = Message.developer("You are a helpful assistant.")
+    assert msg.role == Role.DEVELOPER
+    assert msg.text == "You are a helpful assistant."
+
+
+def test_image_data_from_path(tmp_path):
+    from attractor.llm.types import ImageData
+    import base64
+
+    # Create a tiny PNG file
+    png_path = tmp_path / "test.png"
+    # Minimal valid PNG (1x1 transparent)
+    png_bytes = bytes([
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,  # PNG signature
+        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,  # IHDR chunk
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+        0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+        0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
+        0x54, 0x78, 0x9C, 0x62, 0x00, 0x00, 0x00, 0x02,
+        0x00, 0x01, 0xE5, 0x27, 0xDE, 0xFC, 0x00, 0x00,
+        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42,
+        0x60, 0x82,
+    ])
+    png_path.write_bytes(png_bytes)
+
+    img = ImageData.from_path(str(png_path))
+    assert img.media_type == "image/png"
+    assert img.data == png_bytes
+    assert img.url.startswith("data:image/png;base64,")
+
+
+def test_image_data_from_path_not_found():
+    from attractor.llm.types import ImageData
+    import pytest
+
+    with pytest.raises(FileNotFoundError):
+        ImageData.from_path("/nonexistent/image.png")
+
+
+def test_stream_result_partial_text():
+    from attractor.llm.high_level import StreamResult
+
+    sr = StreamResult.__new__(StreamResult)
+    sr._text_parts = ["Hello", " world"]
+    sr._tool_calls = []
+    sr._usage = Usage()
+    sr._finish_reason = None
+    sr._done = False
+    assert sr.partial_text == "Hello world"
+
+
+def test_stream_result_response_assembly():
+    from attractor.llm.high_level import StreamResult
+
+    sr = StreamResult.__new__(StreamResult)
+    sr._text_parts = ["answer"]
+    sr._tool_calls = []
+    sr._usage = Usage(input_tokens=10, output_tokens=5)
+    sr._finish_reason = FinishReason.STOP
+    sr._done = True
+    resp = sr.response()
+    assert resp.text == "answer"
+    assert resp.usage.input_tokens == 10
+
+
+def test_openai_compatible_adapter_init():
+    from attractor.llm.adapters.openai_compatible import OpenAICompatibleAdapter
+
+    adapter = OpenAICompatibleAdapter(
+        base_url="http://localhost:11434/v1",
+        provider_name="ollama",
+    )
+    assert adapter.name == "ollama"

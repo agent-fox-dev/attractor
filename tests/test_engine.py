@@ -232,6 +232,93 @@ def test_loop_restart_edge():
     assert any(e.data["to_node"] == "exit" for e in b_to)
 
 
+def test_human_gate_timeout_default_choice():
+    """human.default_choice selects the edge target on timeout."""
+    from attractor.pipeline.handlers.human import WaitForHumanHandler
+    from attractor.pipeline.context import Context
+
+    graph = parse_dot("""
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        gate [shape=hexagon, label="Approve?"]
+        yes_path [shape=box, prompt="Approved"]
+        start -> gate
+        gate -> yes_path [label="&Yes"]
+        gate -> exit [label="&No"]
+        yes_path -> exit
+    }
+    """)
+    # Set human.default_choice on the gate node
+    graph.nodes["gate"].attrs["human.default_choice"] = "y"
+
+    # Use a QueueInterviewer that times out immediately
+    interviewer = QueueInterviewer(timeout=0.01)
+    handler = WaitForHumanHandler(interviewer=interviewer)
+    ctx = Context()
+    outcome = handler.execute(graph.nodes["gate"], ctx, graph)
+    # Should succeed with default choice instead of failing on timeout
+    assert outcome.status == StageStatus.SUCCESS
+    assert "yes_path" in outcome.suggested_next_ids
+
+
+def test_manager_poll_interval_parsing():
+    """manager.poll_interval supports duration strings."""
+    from attractor.pipeline.handlers.manager import _parse_duration
+
+    assert _parse_duration("500ms") == 0.5
+    assert _parse_duration("2s") == 2.0
+    assert _parse_duration("1m") == 60.0
+    assert _parse_duration("1h") == 3600.0
+    assert _parse_duration("3") == 3.0
+
+
+def test_tool_command_attribute():
+    """tool_command attribute is used by ToolHandler."""
+    from attractor.pipeline.handlers.tool_handler import ToolHandler
+    from attractor.pipeline.context import Context
+
+    graph = parse_dot("""
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        t [shape=box, type="tool"]
+        start -> t -> exit
+    }
+    """)
+    graph.nodes["t"].attrs["tool_command"] = "echo hello_tool"
+    handler = ToolHandler()
+    ctx = Context()
+    outcome = handler.execute(graph.nodes["t"], ctx, graph)
+    assert outcome.status == StageStatus.SUCCESS
+    assert "hello_tool" in outcome.notes
+
+
+def test_allow_partial_on_fail():
+    """allow_partial converts FAIL to PARTIAL_SUCCESS when retries exhausted."""
+    from attractor.pipeline.engine import execute_with_retry, RetryPolicy
+    from attractor.pipeline.context import Context
+    from attractor.pipeline.handlers.base import Handler
+
+    class FailHandler(Handler):
+        def execute(self, node, context, graph, logs_root=None):
+            return Outcome(status=StageStatus.FAIL, failure_reason="always fails")
+
+    graph = parse_dot("""
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        a [shape=box, prompt="Work", allow_partial=true]
+        start -> a -> exit
+    }
+    """)
+    node = graph.nodes["a"]
+    policy = RetryPolicy(max_retries=1)
+    outcome = execute_with_retry(node, Context(), graph, FailHandler(), policy)
+    assert outcome.status == StageStatus.PARTIAL_SUCCESS
+    assert "allow_partial" in outcome.notes
+
+
 def test_checkpoint_save_and_resume():
     dot = """
     digraph T {

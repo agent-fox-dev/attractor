@@ -43,6 +43,7 @@ class ParallelHandler(Handler):
         # k_of_n: how many successes needed (defaults to majority for quorum)
         k_value = int(node.attrs.get("k", 0))
 
+        max_parallel = int(node.attrs.get("max_parallel", 0)) or len(outgoing)
         branch_targets = [e.to_node for e in outgoing]
         results: dict[str, Outcome] = {}
         lock = threading.Lock()
@@ -74,7 +75,7 @@ class ParallelHandler(Handler):
             return {k: v.status.value for k, v in results.items()}
 
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=len(branch_targets)
+            max_workers=max_parallel
         ) as executor:
             futures = {
                 executor.submit(_run_branch, tid): tid

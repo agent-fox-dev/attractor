@@ -31,8 +31,10 @@ from attractor.llm.types import (
     ProviderError,
     Request,
     Response,
+    ResponseFormat,
     RetryPolicy,
     StreamEvent,
+    StreamEventKind,
     ToolCallData,
     ToolDefinition,
     ToolResultData,
@@ -242,19 +244,27 @@ async def generate(
             steps.append(step)
             break
 
-        tool_results: list[ToolResultData] = []
-        for tc in response.tool_calls:
+        # Execute tools concurrently
+        async def _exec_tool(tc: ToolCallData) -> ToolResultData:
             try:
                 result = tool_executor(tc)
                 if isinstance(result, str):
-                    result = ToolResultData(tool_call_id=tc.id, content=result)
-                tool_results.append(result)
+                    return ToolResultData(tool_call_id=tc.id, content=result)
+                return result
             except Exception as exc:
-                tool_results.append(ToolResultData(
+                return ToolResultData(
                     tool_call_id=tc.id,
                     content=f"Tool error: {exc}",
                     is_error=True,
-                ))
+                )
+
+        if len(response.tool_calls) > 1:
+            import asyncio
+            tool_results = list(await asyncio.gather(
+                *[_exec_tool(tc) for tc in response.tool_calls]
+            ))
+        else:
+            tool_results = [await _exec_tool(tc) for tc in response.tool_calls]
 
         step.tool_results = tool_results
         steps.append(step)
@@ -381,3 +391,169 @@ async def stream(
 
     async for event in effective_client.stream(request):
         yield event
+
+
+# ---------------------------------------------------------------------------
+# StreamResult
+# ---------------------------------------------------------------------------
+
+
+class StreamResult:
+    """Wrapper around a streaming response that accumulates text and tool calls.
+
+    Iterating yields ``StreamEvent`` items.  After iteration completes,
+    ``response()`` returns the fully assembled ``Response``.
+    """
+
+    def __init__(self, events: AsyncIterator[StreamEvent]) -> None:
+        self._events = events
+        self._text_parts: list[str] = []
+        self._tool_calls: list[ToolCallData] = []
+        self._usage = Usage()
+        self._finish_reason: FinishReason | None = None
+        self._done = False
+
+    async def __aiter__(self):
+        async for event in self._events:
+            if event.kind == StreamEventKind.CONTENT_DELTA:
+                delta = (event.data or {}).get("text", "")
+                if delta:
+                    self._text_parts.append(delta)
+            elif event.kind == StreamEventKind.TOOL_CALL_END:
+                if event.content_part and event.content_part.tool_call:
+                    self._tool_calls.append(event.content_part.tool_call)
+            if event.finish_reason:
+                self._finish_reason = event.finish_reason
+            if event.usage:
+                self._usage = event.usage
+            yield event
+        self._done = True
+
+    @property
+    def text_stream(self) -> AsyncIterator[str]:
+        """Yield only text deltas."""
+        return self._text_stream_gen()
+
+    async def _text_stream_gen(self) -> AsyncIterator[str]:
+        async for event in self._events:
+            if event.kind == StreamEventKind.CONTENT_DELTA:
+                delta = (event.data or {}).get("text", "")
+                if delta:
+                    self._text_parts.append(delta)
+                    yield delta
+            elif event.kind == StreamEventKind.TOOL_CALL_END:
+                if event.content_part and event.content_part.tool_call:
+                    self._tool_calls.append(event.content_part.tool_call)
+            if event.finish_reason:
+                self._finish_reason = event.finish_reason
+            if event.usage:
+                self._usage = event.usage
+        self._done = True
+
+    @property
+    def partial_text(self) -> str:
+        """Return text accumulated so far."""
+        return "".join(self._text_parts)
+
+    def response(self) -> Response:
+        """Return the fully assembled Response (only valid after iteration completes)."""
+        parts: list[ContentPart] = []
+        text = "".join(self._text_parts)
+        if text:
+            parts.append(ContentPart(kind=ContentKind.TEXT, text=text))
+        for tc in self._tool_calls:
+            parts.append(ContentPart(kind=ContentKind.TOOL_CALL, tool_call=tc))
+        return Response(
+            model="",
+            content=parts,
+            usage=self._usage,
+            finish_reason=self._finish_reason or FinishReason.STOP,
+        )
+
+
+async def stream_with_result(
+    model: str,
+    prompt_or_messages: str | list[Message],
+    *,
+    tools: list[ToolDefinition | dict[str, Any]] | None = None,
+    tool_choice: str | None = None,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    reasoning_effort: str | None = None,
+    provider: str | None = None,
+    provider_options: dict[str, Any] | None = None,
+    client: Client | None = None,
+) -> StreamResult:
+    """Stream LLM response events, returning a StreamResult wrapper.
+
+    The StreamResult can be iterated for events, and after completion
+    provides the assembled response.
+    """
+    events = stream(
+        model,
+        prompt_or_messages,
+        tools=tools,
+        tool_choice=tool_choice,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        reasoning_effort=reasoning_effort,
+        provider=provider,
+        provider_options=provider_options,
+        client=client,
+    )
+    return StreamResult(events)
+
+
+# ---------------------------------------------------------------------------
+# stream_object()
+# ---------------------------------------------------------------------------
+
+
+async def stream_object(
+    model: str,
+    prompt_or_messages: str | list[Message],
+    *,
+    schema: dict[str, Any],
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    provider: str | None = None,
+    provider_options: dict[str, Any] | None = None,
+    client: Client | None = None,
+) -> AsyncIterator[dict[str, Any] | str]:
+    """Stream structured output with incremental JSON parsing.
+
+    Yields text deltas as strings. After all events are consumed,
+    the final yield is the parsed JSON object (dict). If parsing fails,
+    raises :class:`NoObjectGeneratedError`.
+    """
+    effective_client = client or _get_default_client()
+    messages = _coerce_messages(prompt_or_messages)
+
+    request = Request(
+        model=model,
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        provider=provider,
+        provider_options=provider_options,
+        response_format={"type": "json_schema", "json_schema": schema, "strict": True},
+    )
+
+    text_parts: list[str] = []
+    async for event in effective_client.stream(request):
+        if event.kind == StreamEventKind.CONTENT_DELTA:
+            delta = (event.data or {}).get("text", "")
+            if delta:
+                text_parts.append(delta)
+                yield delta
+
+    full_text = "".join(text_parts).strip()
+    if not full_text:
+        raise NoObjectGeneratedError("Streaming produced no output")
+
+    try:
+        yield json.loads(full_text)
+    except json.JSONDecodeError as exc:
+        raise NoObjectGeneratedError(
+            f"Failed to parse streamed output as JSON: {exc}"
+        ) from exc

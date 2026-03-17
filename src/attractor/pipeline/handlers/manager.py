@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -14,6 +15,31 @@ if TYPE_CHECKING:
     from ..graph import Graph, Node
 
 
+_DURATION_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*(ms|s|m|h)?", re.IGNORECASE)
+
+
+def _parse_duration(value: str) -> float:
+    """Parse a duration string into seconds.
+
+    Supports: ``1s``, ``500ms``, ``2m``, ``1h``, or plain number (seconds).
+    """
+    m = _DURATION_PATTERN.match(value.strip())
+    if not m:
+        try:
+            return float(value)
+        except ValueError:
+            return 1.0
+    num = float(m.group(1))
+    unit = (m.group(2) or "s").lower()
+    if unit == "ms":
+        return num / 1000.0
+    if unit == "m":
+        return num * 60.0
+    if unit == "h":
+        return num * 3600.0
+    return num
+
+
 class ManagerLoopHandler(Handler):
     """Supervisor loop handler that cycles through observe / steer / wait.
 
@@ -22,8 +48,9 @@ class ManagerLoopHandler(Handler):
 
     Configuration via node attrs:
       - ``max_cycles``: maximum number of observe/steer cycles (default 10)
-      - ``wait_seconds``: seconds to wait between cycles (default 1)
+      - ``wait_seconds`` or ``manager.poll_interval``: wait between cycles
       - ``completion_key``: context key to check for completion signal
+      - ``manager.stop_condition``: expression evaluated to check if loop should stop
     """
 
     def execute(
@@ -34,8 +61,14 @@ class ManagerLoopHandler(Handler):
         logs_root: Path | None = None,
     ) -> Outcome:
         max_cycles = int(node.attrs.get("max_cycles", "10"))
-        wait_seconds = float(node.attrs.get("wait_seconds", "1"))
+        # Support both manager.poll_interval (duration string) and wait_seconds (plain float)
+        poll_interval_str = node.attrs.get("manager.poll_interval", "")
+        if poll_interval_str:
+            wait_seconds = _parse_duration(poll_interval_str)
+        else:
+            wait_seconds = float(node.attrs.get("wait_seconds", "1"))
         completion_key = node.attrs.get("completion_key", "manager_done")
+        stop_condition = node.attrs.get("manager.stop_condition", "")
 
         for cycle in range(max_cycles):
             # --- Observe ---
@@ -50,6 +83,18 @@ class ManagerLoopHandler(Handler):
                     notes=f"Manager completed after {cycle + 1} cycle(s).",
                     context_updates={"manager_cycles": cycle + 1},
                 )
+
+            # Check stop_condition expression
+            if stop_condition:
+                if self._evaluate_stop_condition(stop_condition, context):
+                    context.append_log(
+                        f"[manager:{node.id}] Cycle {cycle}: stop condition met."
+                    )
+                    return Outcome(
+                        status=StageStatus.SUCCESS,
+                        notes=f"Manager stop condition met at cycle {cycle + 1}.",
+                        context_updates={"manager_cycles": cycle + 1},
+                    )
 
             # Check parallel results if available
             parallel_results = context.get("parallel_results", {})
@@ -84,3 +129,20 @@ class ManagerLoopHandler(Handler):
             notes=f"Manager reached max cycles ({max_cycles}) without completion signal.",
             context_updates={"manager_cycles": max_cycles},
         )
+
+    def _evaluate_stop_condition(self, condition: str, context: "Context") -> bool:
+        """Evaluate a simple stop condition against context values.
+
+        Supports: ``key=value``, ``key!=value``, ``key`` (truthy check).
+        """
+        condition = condition.strip()
+        if "!=" in condition:
+            key, expected = condition.split("!=", 1)
+            actual = str(context.get(key.strip(), ""))
+            return actual != expected.strip()
+        if "=" in condition:
+            key, expected = condition.split("=", 1)
+            actual = str(context.get(key.strip(), ""))
+            return actual == expected.strip()
+        # Truthy check
+        return bool(context.get(condition, False))

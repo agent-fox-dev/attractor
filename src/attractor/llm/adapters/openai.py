@@ -77,10 +77,16 @@ class OpenAIAdapter(ProviderAdapter):
         base_url: str = "https://api.openai.com",
         default_headers: dict[str, str] | None = None,
         timeout: float = 300.0,
+        organization: str | None = None,
+        project: str | None = None,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._default_headers = default_headers or {}
+        if organization:
+            self._default_headers["OpenAI-Organization"] = organization
+        if project:
+            self._default_headers["OpenAI-Project"] = project
         self._timeout = timeout
         self._client: httpx.AsyncClient | None = None
 

@@ -31,7 +31,7 @@ class ToolHandler(Handler):
         graph: "Graph",
         logs_root: Path | None = None,
     ) -> Outcome:
-        command = node.attrs.get("command", "") or node.prompt
+        command = node.attrs.get("tool_command", "") or node.attrs.get("command", "") or node.prompt
         if not command:
             return Outcome(
                 status=StageStatus.FAIL,

@@ -120,6 +120,7 @@ class SessionConfig:
     max_input_tokens: int = 0
     max_output_tokens: int = 0
     max_total_tokens: int = 0
+    context_window_size: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -398,6 +399,26 @@ class Session:
             return True
         if cfg.max_total_tokens > 0 and self.total_usage.total_tokens >= cfg.max_total_tokens:
             return True
+        # Context window 80% threshold warning (heuristic: 1 token ≈ 4 chars)
+        if cfg.context_window_size > 0:
+            char_count = sum(
+                len(t.content) for t in self.history
+                if isinstance(t, (UserTurn, SteeringTurn, SystemTurn))
+            ) + sum(
+                len(t.content) + sum(len(str(tc.arguments)) for tc in t.tool_calls)
+                for t in self.history if isinstance(t, AssistantTurn)
+            ) + sum(
+                sum(len(r.content) if isinstance(r.content, str) else 0 for r in t.results)
+                for t in self.history if isinstance(t, ToolResultsTurn)
+            )
+            approx_tokens = char_count // 4
+            if approx_tokens >= int(cfg.context_window_size * 0.8):
+                self._emit(
+                    EventKind.ERROR,
+                    warning="context_window_80pct",
+                    approx_tokens=approx_tokens,
+                    context_window=cfg.context_window_size,
+                )
         return False
 
     def get_metrics(self) -> dict[str, Any]:
@@ -477,6 +498,16 @@ class Session:
                     arguments = {"input": arguments}
 
             raw_output = registered.executor(arguments, self.execution_env)
+
+            # Emit output deltas for streaming consumers
+            _DELTA_CHUNK = 4096
+            if len(raw_output) > _DELTA_CHUNK:
+                for i in range(0, len(raw_output), _DELTA_CHUNK):
+                    self._emit(
+                        EventKind.TOOL_CALL_OUTPUT_DELTA,
+                        call_id=tool_call.id,
+                        delta=raw_output[i:i + _DELTA_CHUNK],
+                    )
 
             # Truncate for LLM
             truncated_output = truncate_tool_output(

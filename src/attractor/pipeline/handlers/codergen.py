@@ -8,6 +8,7 @@ log directory.
 from __future__ import annotations
 
 import json
+import subprocess
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
@@ -58,6 +59,9 @@ class CodergenHandler(Handler):
             stage_dir.mkdir(parents=True, exist_ok=True)
             (stage_dir / "prompt.md").write_text(prompt, encoding="utf-8")
 
+        # Run pre-hooks
+        self._run_hooks(node, graph, "pre", prompt)
+
         # Execute
         start_time = time.time()
         try:
@@ -104,8 +108,42 @@ class CodergenHandler(Handler):
                 json.dumps(status_data, indent=2), encoding="utf-8"
             )
 
+        # Run post-hooks
+        self._run_hooks(node, graph, "post", prompt, response_text)
+
         # Apply context updates
         if outcome.context_updates:
             context.apply_updates(outcome.context_updates)
 
         return outcome
+
+    def _run_hooks(
+        self,
+        node: "Node",
+        graph: "Graph",
+        phase: str,
+        prompt: str,
+        response: str = "",
+    ) -> None:
+        """Run tool_hooks.pre or tool_hooks.post shell commands."""
+        # Check node-level first, then graph-level
+        hook_key = f"tool_hooks.{phase}"
+        command = node.attrs.get(hook_key, "") or graph.attrs.get(hook_key, "")
+        if not command:
+            return
+
+        env = {
+            "ATTRACTOR_NODE_ID": node.id,
+            "ATTRACTOR_PHASE": phase,
+            "ATTRACTOR_PROMPT": prompt[:4096],
+        }
+        if response:
+            env["ATTRACTOR_RESPONSE"] = response[:4096]
+
+        try:
+            subprocess.run(
+                command, shell=True, capture_output=True, text=True,
+                timeout=30, env={**__import__("os").environ, **env},
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            pass

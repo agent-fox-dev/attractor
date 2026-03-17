@@ -125,16 +125,19 @@ class Client:
             providers["openai"] = OpenAIAdapter(
                 api_key=api_key,
                 base_url=os.environ.get("OPENAI_BASE_URL", "https://api.openai.com"),
+                organization=os.environ.get("OPENAI_ORG_ID"),
+                project=os.environ.get("OPENAI_PROJECT_ID"),
             )
             if default is None:
                 default = "openai"
 
-        # -- Gemini
-        if api_key := os.environ.get("GEMINI_API_KEY"):
+        # -- Gemini (GEMINI_API_KEY or GOOGLE_API_KEY)
+        gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        if gemini_key:
             from attractor.llm.adapters.gemini import GeminiAdapter
 
             providers["gemini"] = GeminiAdapter(
-                api_key=api_key,
+                api_key=gemini_key,
                 base_url=os.environ.get("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com"),
             )
             if default is None:

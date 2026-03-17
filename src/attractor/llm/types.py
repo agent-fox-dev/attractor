@@ -72,6 +72,17 @@ class StreamEventKind(StrEnum):
 # ---------------------------------------------------------------------------
 
 
+_MIME_BY_EXT: dict[str, str] = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+    ".bmp": "image/bmp",
+}
+
+
 class ImageData(BaseModel):
     """Image content — exactly one of *url* or *data* must be set."""
 
@@ -79,6 +90,25 @@ class ImageData(BaseModel):
     data: bytes | None = None
     media_type: str | None = None
     detail: str | None = None
+
+    @classmethod
+    def from_path(cls, path: str) -> "ImageData":
+        """Load an image from a local file path and infer its MIME type."""
+        import base64
+        from pathlib import Path as _Path
+
+        p = _Path(path).expanduser().resolve()
+        if not p.exists():
+            raise FileNotFoundError(f"Image file not found: {path}")
+        raw = p.read_bytes()
+        ext = p.suffix.lower()
+        mime = _MIME_BY_EXT.get(ext, "application/octet-stream")
+        b64 = base64.b64encode(raw).decode("ascii")
+        return cls(
+            url=f"data:{mime};base64,{b64}",
+            data=raw,
+            media_type=mime,
+        )
 
 
 class AudioData(BaseModel):
@@ -176,6 +206,14 @@ class Message(BaseModel):
     def assistant(cls, text: str) -> Message:
         return cls(
             role=Role.ASSISTANT,
+            content=[ContentPart(kind=ContentKind.TEXT, text=text)],
+        )
+
+    @classmethod
+    def developer(cls, text: str) -> Message:
+        """Create a developer-role message (used by some providers for system-like instructions)."""
+        return cls(
+            role=Role.DEVELOPER,
             content=[ContentPart(kind=ContentKind.TEXT, text=text)],
         )
 
