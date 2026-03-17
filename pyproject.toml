@@ -1,0 +1,26 @@
+[project]
+name = "attractor"
+version = "0.1.0"
+description = "DOT-based pipeline runner for orchestrating multi-stage AI workflows"
+readme = "README.md"
+authors = [
+    { name = "Michael Kuehl", email = "hello@txs.vc" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28",
+    "pydantic>=2.10",
+]
+
+[project.scripts]
+attractor = "attractor.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.10.10,<0.11.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.25",
+]
