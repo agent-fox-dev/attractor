@@ -860,3 +860,51 @@ def test_edge_selection_step4_lexical_tiebreak():
 
     selected = select_edge(node, outcome, context, graph)
     assert selected.to_node == "alpha"  # lexically first
+
+
+def test_run_start_at():
+    """run() with start_at skips the start node and begins at the specified node."""
+    from attractor.pipeline.engine import run
+    from attractor.pipeline.graph import StageStatus
+
+    dot = """
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        a [shape=box, prompt="Step A"]
+        b [shape=box, prompt="Step B"]
+        start -> a -> b -> exit
+    }
+    """
+    graph = parse_dot(dot)
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config = PipelineConfig(logs_root=tmpdir)
+        outcome = run(graph, config, start_at="b")
+    assert outcome.status == StageStatus.SUCCESS
+
+
+def test_loop_restart_creates_fresh_log_dir():
+    """loop_restart edges trigger recursive run() with a new log directory."""
+    from attractor.pipeline.engine import run
+    from attractor.pipeline.graph import StageStatus
+
+    dot = """
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        a [shape=box, prompt="Step A"]
+        start -> a
+        a -> start [loop_restart=true, weight=1]
+        a -> exit [weight=10]
+    }
+    """
+    graph = parse_dot(dot)
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logs_root = Path(tmpdir) / "logs"
+        logs_root.mkdir()
+        config = PipelineConfig(logs_root=str(logs_root))
+        outcome = run(graph, config)
+    # Should succeed (takes the weight=10 exit edge)
+    assert outcome.status == StageStatus.SUCCESS

@@ -286,11 +286,18 @@ def run(
     config: PipelineConfig | None = None,
     registry: HandlerRegistry | None = None,
     emitter: EventEmitter | None = None,
+    start_at: str | None = None,
 ) -> Outcome:
     """Execute a pipeline graph and return the final outcome.
 
     This is the low-level execution function.  Most callers should use
     ``PipelineRunner`` instead.
+
+    Parameters
+    ----------
+    start_at:
+        Node ID to start execution from (used by loop_restart).
+        If None, starts from the graph's start node.
     """
     config = config or PipelineConfig()
     registry = registry or _get_default_registry()
@@ -314,8 +321,11 @@ def run(
         node_retries = dict(cp.node_retries)
 
     # Find start
-    start_node = find_start_node(graph)
-    current_node: Node | None = start_node
+    if start_at and start_at in graph.nodes:
+        current_node: Node | None = graph.nodes[start_at]
+    else:
+        start_node = find_start_node(graph)
+        current_node = start_node
 
     # Track fidelity degradation on resume
     _degrade_fidelity_on_resume = False
@@ -541,7 +551,7 @@ def run(
         elif not next_node.fidelity and graph.default_fidelity:
             next_node.attrs["fidelity"] = graph.default_fidelity
 
-        # Handle loop_restart edges: restart execution from the target node
+        # Handle loop_restart edges: terminate and re-launch with fresh log dir
         if edge.loop_restart:
             emitter.emit(
                 PipelineEventKind.EDGE_FOLLOW,
@@ -552,10 +562,18 @@ def run(
             context.append_log(
                 f"[step {step}] Loop restart -> '{edge.to_node}'"
             )
-            # Reset tracking for the restart
-            node_outcomes.clear()
-            node_retries.clear()
-            completed_nodes.clear()
+            # Create fresh log directory for restart per spec Section 2.7
+            restart_config = PipelineConfig(
+                max_steps=config.max_steps,
+                checkpoint_dir=config.checkpoint_dir,
+                context_values=context.snapshot()["values"],
+            )
+            if config.logs_root is not None:
+                import time as _time
+                restart_logs = config.logs_root.parent / f"{config.logs_root.name}_restart_{int(_time.time())}"
+                restart_logs.mkdir(parents=True, exist_ok=True)
+                restart_config.logs_root = restart_logs
+            return run(graph, restart_config, registry, emitter, start_at=edge.to_node)
 
         current_node = next_node
 
