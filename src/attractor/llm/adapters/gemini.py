@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import asyncio
+import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -203,13 +204,17 @@ class GeminiAdapter(ProviderAdapter):
         contents: list[dict[str, Any]] = []
         system_instruction: dict[str, Any] | None = None
 
+        system_texts: list[str] = []
         for msg in request.messages:
-            if msg.role == Role.SYSTEM:
-                system_instruction = {
-                    "parts": [{"text": msg.text}],
-                }
+            if msg.role in (Role.SYSTEM, Role.DEVELOPER):
+                system_texts.append(msg.text)
                 continue
             contents.append(self._convert_message(msg))
+
+        if system_texts:
+            system_instruction = {
+                "parts": [{"text": "\n\n".join(system_texts)}],
+            }
 
         payload: dict[str, Any] = {"contents": contents}
 
@@ -370,10 +375,12 @@ class GeminiAdapter(ProviderAdapter):
                 elif "functionCall" in part:
                     fc = part["functionCall"]
                     raw_args = fc.get("args", {})
+                    # Gemini doesn't assign unique IDs; generate synthetic ones
+                    synthetic_id = f"call_{uuid.uuid4().hex[:12]}"
                     content.append(ContentPart(
                         kind=ContentKind.TOOL_CALL,
                         tool_call=ToolCallData(
-                            id=fc.get("name", ""),  # Gemini uses name as id
+                            id=synthetic_id,
                             name=fc.get("name", ""),
                             arguments=raw_args,
                             raw_arguments=json.dumps(raw_args) if isinstance(raw_args, dict) else str(raw_args),
@@ -537,16 +544,17 @@ class GeminiAdapter(ProviderAdapter):
 
             elif "functionCall" in part:
                 fc = part["functionCall"]
+                synthetic_id = f"call_{uuid.uuid4().hex[:12]}"
                 yield StreamEvent(
                     kind=StreamEventKind.TOOL_CALL_START,
-                    data={"id": fc.get("name", ""), "name": fc.get("name", "")},
+                    data={"id": synthetic_id, "name": fc.get("name", "")},
                 )
                 yield StreamEvent(
                     kind=StreamEventKind.TOOL_CALL_END,
                     content_part=ContentPart(
                         kind=ContentKind.TOOL_CALL,
                         tool_call=ToolCallData(
-                            id=fc.get("name", ""),
+                            id=synthetic_id,
                             name=fc.get("name", ""),
                             arguments=fc.get("args", {}),
                         ),
@@ -560,7 +568,7 @@ class GeminiAdapter(ProviderAdapter):
                 ContentPart(
                     kind=ContentKind.TOOL_CALL,
                     tool_call=ToolCallData(
-                        id=p["functionCall"].get("name", ""),
+                        id=f"call_{uuid.uuid4().hex[:12]}",
                         name=p["functionCall"].get("name", ""),
                         arguments=p["functionCall"].get("args", {}),
                     ),

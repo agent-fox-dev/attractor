@@ -181,6 +181,12 @@ def _make_executors(
             max_turns=max_turns,
         )
 
+        # Propagate depth to child's execution environment
+        child_env = getattr(child_session, "execution_env", None) or getattr(child_session, "_env", None)
+        if child_env is not None:
+            child_env._parent_depth = parent_depth + 1
+            child_env._max_subagent_depth = max_depth
+
         handle = SubAgentHandle(id=agent_id, session=child_session)
         handles[agent_id] = handle
 

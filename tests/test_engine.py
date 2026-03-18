@@ -683,3 +683,29 @@ def test_auto_status_synthesizes_success():
         assert status_file.exists()
         status = json.loads(status_file.read_text())
         assert status["status"] == "success"
+
+
+def test_fan_in_selects_best_candidate():
+    """FanInHandler selects best candidate and records in context."""
+    from attractor.pipeline.handlers.fan_in import FanInHandler
+    from attractor.pipeline.context import Context
+    from attractor.pipeline.graph import Node, Graph
+
+    handler = FanInHandler()
+    node = Node(id="fan_in", shape="box")
+    context = Context()
+    context.apply_updates({
+        "parallel_results": {
+            "branch_a": {"status": "success", "score": 5},
+            "branch_b": {"status": "fail", "score": 10},
+            "branch_c": {"status": "success", "score": 8},
+        },
+    })
+
+    graph = Graph(name="test")
+    outcome = handler.execute(node, context, graph)
+
+    assert outcome.status == StageStatus.PARTIAL_SUCCESS  # has failures
+    assert outcome.context_updates is not None
+    assert outcome.context_updates["parallel.fan_in.best_id"] == "branch_c"
+    assert outcome.context_updates["parallel.fan_in.best_outcome"] == "success"

@@ -262,7 +262,15 @@ class OpenAIAdapter(ProviderAdapter):
             payload["tools"] = [self._convert_tool(t) for t in request.tools]
 
         if request.tool_choice:
-            payload["tool_choice"] = request.tool_choice
+            # Convert named tool choice to OpenAI format
+            if request.tool_choice in ("auto", "none", "required"):
+                payload["tool_choice"] = request.tool_choice
+            else:
+                # Named tool: convert to {"type": "function", "function": {"name": ...}}
+                payload["tool_choice"] = {
+                    "type": "function",
+                    "function": {"name": request.tool_choice},
+                }
 
         if request.reasoning_effort:
             payload["reasoning"] = {"effort": request.reasoning_effort}

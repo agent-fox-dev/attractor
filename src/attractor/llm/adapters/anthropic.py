@@ -263,7 +263,7 @@ class AnthropicAdapter(ProviderAdapter):
         messages: list[dict[str, Any]] = []
 
         for msg in request.messages:
-            if msg.role == Role.SYSTEM:
+            if msg.role in (Role.SYSTEM, Role.DEVELOPER):
                 block: dict[str, Any] = {"type": "text", "text": msg.text}
                 # Auto-inject cache_control on system blocks unless disabled.
                 opts = request.provider_options or {}
@@ -296,11 +296,14 @@ class AnthropicAdapter(ProviderAdapter):
         if request.stop_sequences:
             payload["stop_sequences"] = request.stop_sequences
 
-        if request.tools:
-            payload["tools"] = [self._convert_tool(t) for t in request.tools]
-
-        if request.tool_choice:
-            payload["tool_choice"] = self._convert_tool_choice(request.tool_choice)
+        # Anthropic quirk: tool_choice="none" requires omitting tools entirely
+        if request.tool_choice == "none":
+            pass  # Do not include tools or tool_choice
+        else:
+            if request.tools:
+                payload["tools"] = [self._convert_tool(t) for t in request.tools]
+            if request.tool_choice:
+                payload["tool_choice"] = self._convert_tool_choice(request.tool_choice)
 
         if request.reasoning_effort:
             thinking = {"type": "enabled", "budget_tokens": self._effort_to_budget(request)}

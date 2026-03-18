@@ -162,13 +162,7 @@ def select_edge(
                 if edge.to_node == sid:
                     return edge
 
-    # Step 4: label matches outcome status, then highest weight
-    status_label = normalize_label(outcome.status.value)
-    for edge in outgoing:
-        if edge.label and normalize_label(edge.label) == status_label:
-            return edge
-
-    # Step 5: default edge (unlabelled, or first available), highest weight wins
+    # Step 4 & 5: highest weight with lexical tiebreak (unconditional edges)
     unlabelled = [e for e in outgoing if not e.label and not e.condition]
     if unlabelled:
         unlabelled.sort(key=lambda e: e.weight, reverse=True)

@@ -607,3 +607,103 @@ def test_generate_accepts_repair_tool_call():
 
     sig = inspect.signature(generate)
     assert "repair_tool_call" in sig.parameters
+
+
+def test_anthropic_tool_choice_none_omits_tools():
+    """Anthropic adapter omits tools when tool_choice='none'."""
+    from attractor.llm.adapters.anthropic import AnthropicAdapter
+
+    adapter = AnthropicAdapter(api_key="test")
+    request = Request(
+        model="test",
+        messages=[Message.user("hi")],
+        tools=[ToolDefinition(name="t", description="d", parameters={})],
+        tool_choice="none",
+    )
+    payload = adapter._build_payload(request, stream=False)
+    assert "tools" not in payload
+    assert "tool_choice" not in payload
+
+
+def test_anthropic_developer_merged_with_system():
+    """Anthropic adapter merges DEVELOPER messages into system."""
+    from attractor.llm.adapters.anthropic import AnthropicAdapter
+    from attractor.llm.types import Role
+
+    adapter = AnthropicAdapter(api_key="test")
+    request = Request(
+        model="test",
+        messages=[
+            Message.system("System msg"),
+            Message.developer("Dev msg"),
+            Message.user("Hello"),
+        ],
+    )
+    payload = adapter._build_payload(request, stream=False)
+    # Both should be in system
+    assert len(payload["system"]) == 2
+    assert payload["system"][0]["text"] == "System msg"
+    assert payload["system"][1]["text"] == "Dev msg"
+    # Only the user message should be in messages
+    assert len(payload["messages"]) == 1
+
+
+def test_gemini_developer_merged_with_system():
+    """Gemini adapter merges DEVELOPER messages into systemInstruction."""
+    from attractor.llm.adapters.gemini import GeminiAdapter
+
+    adapter = GeminiAdapter(api_key="test")
+    request = Request(
+        model="test",
+        messages=[
+            Message.system("System msg"),
+            Message.developer("Dev msg"),
+            Message.user("Hello"),
+        ],
+    )
+    payload = adapter._build_payload(request)
+    assert "systemInstruction" in payload
+    text = payload["systemInstruction"]["parts"][0]["text"]
+    assert "System msg" in text
+    assert "Dev msg" in text
+
+
+def test_gemini_synthetic_tool_call_ids():
+    """Gemini adapter generates unique synthetic IDs for tool calls."""
+    from attractor.llm.adapters.gemini import GeminiAdapter
+
+    adapter = GeminiAdapter(api_key="test")
+    raw = {
+        "candidates": [{
+            "content": {
+                "parts": [
+                    {"functionCall": {"name": "read_file", "args": {"path": "a.py"}}},
+                    {"functionCall": {"name": "read_file", "args": {"path": "b.py"}}},
+                ],
+            },
+            "finishReason": "STOP",
+        }],
+        "usageMetadata": {},
+    }
+    response = adapter._parse_response(raw)
+    tc = response.tool_calls
+    assert len(tc) == 2
+    assert tc[0].id != tc[1].id  # Unique IDs
+    assert tc[0].id.startswith("call_")
+    assert tc[1].id.startswith("call_")
+
+
+def test_openai_named_tool_choice():
+    """OpenAI adapter converts named tool_choice to proper format."""
+    from attractor.llm.adapters.openai import OpenAIAdapter
+
+    adapter = OpenAIAdapter(api_key="test")
+    request = Request(
+        model="test",
+        messages=[Message.user("hi")],
+        tools=[ToolDefinition(name="shell", description="run", parameters={})],
+        tool_choice="shell",
+    )
+    payload = adapter._build_payload(request, stream=False)
+    tc = payload["tool_choice"]
+    assert tc == {"type": "function", "function": {"name": "shell"}}
