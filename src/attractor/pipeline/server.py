@@ -241,6 +241,19 @@ class PipelineHTTPHandler(BaseHTTPRequestHandler):
                 self._send_json(checkpoint)
             return
 
+        # GET /pipelines/{id}/questions
+        if len(parts) == 3 and parts[0] == "pipelines" and parts[2] == "questions":
+            run = self.manager.get_run(parts[1])
+            if run is None:
+                self._send_error("Pipeline not found", 404)
+                return
+            questions = [
+                {"id": qid, "text": str(q)}
+                for qid, q in run.pending_questions.items()
+            ]
+            self._send_json(questions)
+            return
+
         # GET /pipelines/{id}/graph
         if len(parts) == 3 and parts[0] == "pipelines" and parts[2] == "graph":
             run = self.manager.get_run(parts[1])

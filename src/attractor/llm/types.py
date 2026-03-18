@@ -49,6 +49,7 @@ class FinishReason(StrEnum):
     LENGTH = "length"
     CONTENT_FILTER = "content_filter"
     ERROR = "error"
+    OTHER = "other"
 
 
 class StreamEventKind(StrEnum):
@@ -494,7 +495,9 @@ class RateLimitInfo(BaseModel):
     """Rate-limit information parsed from response headers."""
 
     requests_remaining: int | None = None
+    requests_limit: int | None = None
     tokens_remaining: int | None = None
+    tokens_limit: int | None = None
     reset_at: str | None = None
 
 
@@ -543,6 +546,7 @@ class ProviderError(Exception):
         raw: Any | None = None,
         retryable: bool = False,
         retry_after: float | None = None,
+        error_code: str | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
@@ -550,6 +554,7 @@ class ProviderError(Exception):
         self.raw = raw
         self.retryable = retryable
         self.retry_after = retry_after
+        self.error_code = error_code
 
 
 class AuthenticationError(ProviderError):

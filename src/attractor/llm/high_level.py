@@ -200,18 +200,23 @@ async def generate(
     model: str,
     prompt_or_messages: str | list[Message],
     *,
+    system: str | None = None,
     tools: list[ToolDefinition | dict[str, Any]] | None = None,
     tool_choice: str | None = None,
     max_tokens: int | None = None,
     temperature: float | None = None,
+    top_p: float | None = None,
+    stop_sequences: list[str] | None = None,
+    response_format: ResponseFormat | dict[str, Any] | None = None,
     reasoning_effort: str | None = None,
     provider: str | None = None,
     provider_options: dict[str, Any] | None = None,
     client: Client | None = None,
-    max_tool_rounds: int = 0,
+    max_tool_rounds: int = 1,
     tool_executor: ToolExecutor | None = None,
     stop_when: StopCondition | None = None,
     retry_policy: RetryPolicy | None = None,
+    max_retries: int | None = None,
     abort_signal: AbortSignal | None = None,
 ) -> GenerateResult:
     """Generate an LLM response, optionally with automatic tool execution.
@@ -225,8 +230,15 @@ async def generate(
     """
     effective_client = client or _get_default_client()
     messages = _coerce_messages(prompt_or_messages)
+    if system is not None:
+        messages = [Message.system(system)] + messages
     coerced_tools = _coerce_tools(tools)
-    policy = retry_policy or RetryPolicy(max_retries=0)
+    if retry_policy is not None:
+        policy = retry_policy
+    elif max_retries is not None:
+        policy = RetryPolicy(max_retries=max_retries)
+    else:
+        policy = RetryPolicy(max_retries=0)
     stop_fn = stop_when or stop_on_text
 
     steps: list[StepResult] = []
@@ -240,6 +252,9 @@ async def generate(
             tool_choice=tool_choice,
             max_tokens=max_tokens,
             temperature=temperature,
+            top_p=top_p,
+            stop_sequences=stop_sequences,
+            response_format=response_format,
             reasoning_effort=reasoning_effort,
             provider=provider,
             provider_options=provider_options,
@@ -457,15 +472,19 @@ async def stream(
     model: str,
     prompt_or_messages: str | list[Message],
     *,
+    system: str | None = None,
     tools: list[ToolDefinition | dict[str, Any]] | None = None,
     tool_choice: str | None = None,
     max_tokens: int | None = None,
     temperature: float | None = None,
+    top_p: float | None = None,
+    stop_sequences: list[str] | None = None,
+    response_format: ResponseFormat | dict[str, Any] | None = None,
     reasoning_effort: str | None = None,
     provider: str | None = None,
     provider_options: dict[str, Any] | None = None,
     client: Client | None = None,
-    max_tool_rounds: int = 0,
+    max_tool_rounds: int = 1,
     tool_executor: ToolExecutor | None = None,
     abort_signal: AbortSignal | None = None,
 ) -> AsyncIterator[StreamEvent]:
@@ -477,6 +496,8 @@ async def stream(
     """
     effective_client = client or _get_default_client()
     messages = _coerce_messages(prompt_or_messages)
+    if system is not None:
+        messages = [Message.system(system)] + messages
     coerced_tools = _coerce_tools(tools)
 
     for _round in range(max(max_tool_rounds, 0) + 1):
@@ -487,6 +508,9 @@ async def stream(
             tool_choice=tool_choice,
             max_tokens=max_tokens,
             temperature=temperature,
+            top_p=top_p,
+            stop_sequences=stop_sequences,
+            response_format=response_format,
             reasoning_effort=reasoning_effort,
             provider=provider,
             provider_options=provider_options,
@@ -633,6 +657,91 @@ class StreamResult:
     def response(self) -> Response:
         """Return the fully assembled Response (only valid after iteration completes)."""
         parts: list[ContentPart] = []
+        text = "".join(self._text_parts)
+        if text:
+            parts.append(ContentPart(kind=ContentKind.TEXT, text=text))
+        for tc in self._tool_calls:
+            parts.append(ContentPart(kind=ContentKind.TOOL_CALL, tool_call=tc))
+        return Response(
+            model="",
+            content=parts,
+            usage=self._usage,
+            finish_reason=self._finish_reason or FinishReason.STOP,
+        )
+
+
+class StreamAccumulator:
+    """Accumulates stream events into a final Response.
+
+    Low-level utility for building custom stream processors. Collects
+    text deltas, tool calls, reasoning deltas, usage, and finish reason
+    from individual StreamEvent objects.
+
+    Usage::
+
+        acc = StreamAccumulator()
+        async for event in client.stream(request):
+            acc.add(event)
+            # process event...
+        response = acc.response()
+    """
+
+    def __init__(self) -> None:
+        self._text_parts: list[str] = []
+        self._reasoning_parts: list[str] = []
+        self._tool_calls: list[ToolCallData] = []
+        self._usage = Usage()
+        self._finish_reason: FinishReason | None = None
+
+    def add(self, event: StreamEvent) -> None:
+        """Ingest a single stream event."""
+        if event.kind == StreamEventKind.CONTENT_DELTA:
+            delta = event.delta or (event.data or {}).get("text", "")
+            if delta:
+                self._text_parts.append(delta)
+        elif event.kind == StreamEventKind.THINKING_DELTA:
+            delta = event.reasoning_delta or ""
+            if delta:
+                self._reasoning_parts.append(delta)
+        elif event.kind == StreamEventKind.TOOL_CALL_END:
+            if event.content_part and event.content_part.tool_call:
+                self._tool_calls.append(event.content_part.tool_call)
+        if event.finish_reason:
+            self._finish_reason = event.finish_reason
+        if event.usage:
+            self._usage = event.usage
+
+    @property
+    def text(self) -> str:
+        return "".join(self._text_parts)
+
+    @property
+    def reasoning(self) -> str:
+        return "".join(self._reasoning_parts)
+
+    @property
+    def tool_calls(self) -> list[ToolCallData]:
+        return list(self._tool_calls)
+
+    @property
+    def usage(self) -> Usage:
+        return self._usage
+
+    @property
+    def finish_reason(self) -> FinishReason | None:
+        return self._finish_reason
+
+    def response(self) -> Response:
+        """Build the accumulated Response."""
+        from attractor.llm.types import ThinkingData
+
+        parts: list[ContentPart] = []
+        reasoning = "".join(self._reasoning_parts)
+        if reasoning:
+            parts.append(ContentPart(
+                kind=ContentKind.THINKING,
+                thinking=ThinkingData(text=reasoning),
+            ))
         text = "".join(self._text_parts)
         if text:
             parts.append(ContentPart(kind=ContentKind.TEXT, text=text))

@@ -27,6 +27,7 @@ from attractor.llm.types import (
     NetworkError,
     ProviderError,
     RateLimitError,
+    RateLimitInfo,
     Request,
     Response,
     Role,
@@ -112,8 +113,10 @@ class AnthropicAdapter(ProviderAdapter):
     async def complete(self, request: Request) -> Response:
         payload = self._build_payload(request, stream=False)
         headers = self._extra_headers(request)
-        raw = await self._post(payload, headers)
-        return self._parse_response(raw)
+        raw, resp_headers = await self._post(payload, headers)
+        response = self._parse_response(raw)
+        response.rate_limit = self._parse_rate_limit_headers(resp_headers)
+        return response
 
     async def stream(self, request: Request) -> AsyncIterator[StreamEvent]:
         payload = self._build_payload(request, stream=True)
@@ -196,7 +199,7 @@ class AnthropicAdapter(ProviderAdapter):
         self,
         payload: dict[str, Any],
         extra_headers: dict[str, str] | None = None,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], dict[str, str]]:
         client = self._ensure_client()
         last_exc: Exception | None = None
 
@@ -226,7 +229,7 @@ class AnthropicAdapter(ProviderAdapter):
                     raise _map_status_to_error(
                         resp.status_code, resp.text, self.name,
                     )
-                return resp.json()
+                return resp.json(), dict(resp.headers)
 
             except httpx.HTTPError as exc:
                 last_exc = exc
@@ -473,7 +476,31 @@ class AnthropicAdapter(ProviderAdapter):
             "tool_use": FinishReason.TOOL_CALLS,
             "max_tokens": FinishReason.LENGTH,
         }
-        return mapping.get(reason, FinishReason.STOP)
+        return mapping.get(reason, FinishReason.OTHER)
+
+    @staticmethod
+    def _parse_rate_limit_headers(headers: dict[str, str]) -> RateLimitInfo | None:
+        """Extract rate-limit info from x-ratelimit-* response headers."""
+        def _int(key: str) -> int | None:
+            val = headers.get(key)
+            if val is None:
+                return None
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                return None
+
+        rl = RateLimitInfo(
+            requests_remaining=_int("anthropic-ratelimit-requests-remaining"),
+            requests_limit=_int("anthropic-ratelimit-requests-limit"),
+            tokens_remaining=_int("anthropic-ratelimit-tokens-remaining"),
+            tokens_limit=_int("anthropic-ratelimit-tokens-limit"),
+            reset_at=headers.get("anthropic-ratelimit-requests-reset"),
+        )
+        # Return None if no headers were present
+        if rl.requests_remaining is None and rl.tokens_remaining is None and rl.requests_limit is None:
+            return None
+        return rl
 
     # -- SSE streaming ------------------------------------------------------
 

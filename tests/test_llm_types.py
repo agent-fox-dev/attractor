@@ -6,7 +6,7 @@ from attractor.llm.types import (
     ModelInfo, ProviderError, AuthenticationError, RateLimitError,
     ServerError, NetworkError, ContentFilterError, InvalidRequestError,
     RetryPolicy, ResponseFormat, RateLimitInfo, ResponseWarning,
-    ThinkingData, StreamEvent,
+    ThinkingData, StreamEvent, StreamEventKind,
 )
 from attractor.llm.high_level import GenerateResult, StepResult
 from attractor.llm.catalog import get_model_info, list_models, get_latest_model
@@ -479,3 +479,69 @@ def test_generate_result_convenience_properties():
     assert len(result.tool_results) == 1
     assert result.tool_results[0].content == "output"
     assert result.finish_reason == FinishReason.STOP
+
+
+def test_finish_reason_other():
+    assert FinishReason.OTHER == "other"
+    assert hasattr(FinishReason, "OTHER")
+
+
+def test_rate_limit_info_extended_fields():
+    info = RateLimitInfo(
+        requests_remaining=100,
+        requests_limit=1000,
+        tokens_remaining=50000,
+        tokens_limit=100000,
+    )
+    assert info.requests_limit == 1000
+    assert info.tokens_limit == 100000
+
+
+def test_provider_error_error_code():
+    from attractor.llm.types import ProviderError
+    err = ProviderError("test", status_code=400, error_code="invalid_model")
+    assert err.error_code == "invalid_model"
+
+
+def test_stream_accumulator():
+    from attractor.llm.high_level import StreamAccumulator
+    from attractor.llm.types import ThinkingData
+
+    acc = StreamAccumulator()
+    acc.add(StreamEvent(kind=StreamEventKind.THINKING_DELTA, reasoning_delta="step 1"))
+    acc.add(StreamEvent(kind=StreamEventKind.CONTENT_DELTA, delta="hello"))
+    acc.add(StreamEvent(kind=StreamEventKind.CONTENT_DELTA, delta=" world"))
+    acc.add(StreamEvent(
+        kind=StreamEventKind.TOOL_CALL_END,
+        content_part=ContentPart(
+            kind=ContentKind.TOOL_CALL,
+            tool_call=ToolCallData(id="tc1", name="shell", arguments={"command": "ls"}),
+        ),
+    ))
+    acc.add(StreamEvent(
+        kind=StreamEventKind.USAGE,
+        usage=Usage(input_tokens=10, output_tokens=5),
+    ))
+    acc.add(StreamEvent(
+        kind=StreamEventKind.DONE,
+        finish_reason=FinishReason.TOOL_CALLS,
+    ))
+
+    assert acc.text == "hello world"
+    assert acc.reasoning == "step 1"
+    assert len(acc.tool_calls) == 1
+    assert acc.finish_reason == FinishReason.TOOL_CALLS
+    assert acc.usage.input_tokens == 10
+
+    resp = acc.response()
+    assert resp.text == "hello world"
+    assert resp.reasoning == "step 1"
+    assert len(resp.tool_calls) == 1
+
+
+def test_grep_output_mode_parameter():
+    from attractor.agent.tools.core import GREP_DEF
+
+    params = GREP_DEF.parameters
+    assert "output_mode" in params["properties"]
+    assert "enum" in params["properties"]["output_mode"]

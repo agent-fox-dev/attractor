@@ -289,3 +289,20 @@ def test_gemini_read_many_files_tool():
     tool_names = [t.name for t in profile.tools()]
     assert "read_many_files" in tool_names
     assert "list_dir" in tool_names
+
+
+def test_shell_default_timeout_from_profile():
+    """Shell tool uses profile default_command_timeout_ms when timeout_ms not set."""
+    from attractor.agent.session import Session
+    from attractor.llm.types import ToolCallData
+
+    env = LocalExecutionEnvironment()
+    profile = AnthropicProfile()
+    session = Session(profile=profile, execution_env=env)
+
+    # Create a shell tool call without timeout_ms
+    tc = ToolCallData(id="tc1", name="shell", arguments={"command": "echo test"})
+    result = session._execute_single_tool(tc)
+    # The command should have run with the profile's default timeout (120s)
+    assert result.is_error is False
+    assert "test" in result.content

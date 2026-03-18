@@ -157,6 +157,11 @@ GREP_DEF = ToolDefinition(
                 "type": "integer",
                 "description": "Maximum number of matching lines. Default: 100.",
             },
+            "output_mode": {
+                "type": "string",
+                "description": 'Output mode: "content" (matching lines) or "files_with_matches" (file paths only). Default: "content".',
+                "enum": ["content", "files_with_matches"],
+            },
         },
         "required": ["pattern"],
     },
@@ -309,6 +314,8 @@ def _exec_grep(arguments: dict[str, Any], env: ExecutionEnvironment) -> str:
         options["case_insensitive"] = arguments["case_insensitive"]
     if "max_results" in arguments:
         options["max_results"] = arguments["max_results"]
+    if "output_mode" in arguments:
+        options["output_mode"] = arguments["output_mode"]
     return env.grep(pattern, path, **options)
 
 

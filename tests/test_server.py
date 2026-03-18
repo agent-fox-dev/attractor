@@ -107,3 +107,25 @@ class TestPipelineManager:
     def test_cancel_nonexistent(self):
         mgr = PipelineManager()
         assert mgr.cancel_run("fake") is False
+
+
+def test_questions_endpoint(server_url):
+    host, port = server_url
+    _, create_data = _request(host, port, "POST", "/pipelines", {"dot_source": SIMPLE_DOT})
+    run_id = create_data["id"]
+
+    # Wait for completion
+    for _ in range(50):
+        time.sleep(0.1)
+        _, data = _request(host, port, "GET", f"/pipelines/{run_id}")
+        if data.get("status") != "running":
+            break
+
+    status, data = _request(host, port, "GET", f"/pipelines/{run_id}/questions")
+    assert status == 200
+    assert isinstance(data, list)  # Empty list since no human gates in SIMPLE_DOT
+
+
+def test_questions_not_found(server_url):
+    status, data = _request(*server_url, "GET", "/pipelines/nonexistent/questions")
+    assert status == 404

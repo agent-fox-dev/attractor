@@ -564,6 +564,16 @@ class Session:
                         is_error=True,
                     )
 
+            # Inject default command timeout for shell tool if not specified
+            if tool_call.name == "shell" and isinstance(arguments, dict):
+                if "timeout_ms" not in arguments:
+                    # Use profile default if set, otherwise session config default
+                    default_timeout = getattr(
+                        self.profile, "default_command_timeout_ms",
+                        self.config.default_command_timeout_ms,
+                    )
+                    arguments["timeout_ms"] = default_timeout
+
             raw_output = registered.executor(arguments, self.execution_env)
 
             # Emit output deltas for streaming consumers
