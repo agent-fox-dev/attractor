@@ -717,3 +717,83 @@ def test_openai_named_tool_choice():
     payload = adapter._build_payload(request, stream=False)
     tc = payload["tool_choice"]
     assert tc == {"type": "function", "function": {"name": "shell"}}
+
+
+def test_stream_object_returns_stream_object_result():
+    """stream_object() returns StreamObjectResult with .object() method."""
+    import inspect
+    from attractor.llm.high_level import stream_object, StreamObjectResult
+
+    sig = inspect.signature(stream_object)
+    ret = sig.return_annotation
+    assert "StreamObjectResult" in str(ret)
+    # Verify StreamObjectResult has .object() method
+    assert hasattr(StreamObjectResult, "object")
+    assert callable(StreamObjectResult.object)
+
+
+def test_adapter_timeout_accepted():
+    """All adapters accept AdapterTimeout as timeout parameter."""
+    from attractor.llm.types import AdapterTimeout
+    from attractor.llm.adapters.anthropic import AnthropicAdapter
+    from attractor.llm.adapters.openai import OpenAIAdapter
+    from attractor.llm.adapters.gemini import GeminiAdapter
+
+    at = AdapterTimeout(connect=5.0, request=120.0, stream_read=30.0)
+
+    a = AnthropicAdapter(api_key="test", timeout=at)
+    assert a._timeout == 120.0
+    assert a._connect_timeout == 5.0
+
+    o = OpenAIAdapter(api_key="test", timeout=at)
+    assert o._timeout == 120.0
+    assert o._connect_timeout == 5.0
+
+    g = GeminiAdapter(api_key="test", timeout=at)
+    assert g._timeout == 120.0
+    assert g._connect_timeout == 5.0
+
+
+def test_openai_strict_tool():
+    """OpenAI adapter includes strict=true when ToolDefinition.strict is set."""
+    from attractor.llm.adapters.openai import OpenAIAdapter
+
+    adapter = OpenAIAdapter(api_key="test")
+    tool = ToolDefinition(name="t", description="d", parameters={}, strict=True)
+    converted = adapter._convert_tool(tool)
+    assert converted["strict"] is True
+
+    tool_no_strict = ToolDefinition(name="t", description="d", parameters={})
+    converted2 = adapter._convert_tool(tool_no_strict)
+    assert "strict" not in converted2
+
+
+def test_grep_output_mode_files_with_matches():
+    """Grep tool output_mode=files_with_matches returns only file paths."""
+    import tempfile
+    from pathlib import Path
+    from attractor.agent.tools.core import _exec_grep
+    from attractor.agent.execution.local import LocalExecutionEnvironment
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        env = LocalExecutionEnvironment(working_dir=tmpdir)
+        # Create test files
+        (Path(tmpdir) / "a.py").write_text("hello world\n")
+        (Path(tmpdir) / "b.py").write_text("hello again\n")
+        (Path(tmpdir) / "c.txt").write_text("no match\n")
+
+        # Default mode (content) returns lines
+        result_content = _exec_grep(
+            {"pattern": "hello", "path": tmpdir}, env
+        )
+        assert "hello" in result_content
+
+        # files_with_matches mode returns only paths
+        result_files = _exec_grep(
+            {"pattern": "hello", "path": tmpdir, "output_mode": "files_with_matches"}, env
+        )
+        lines = result_files.strip().splitlines()
+        assert len(lines) == 2
+        for line in lines:
+            assert "hello" not in line or line.endswith(".py")
+            assert ":" not in line.split("/")[-1]  # No line numbers

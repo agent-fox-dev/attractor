@@ -19,6 +19,7 @@ import httpx
 from attractor.llm.adapters.base import ProviderAdapter
 from attractor.llm.types import (
     AccessDeniedError,
+    AdapterTimeout,
     AuthenticationError,
     ContentKind,
     ContentPart,
@@ -78,11 +79,16 @@ class GeminiAdapter(ProviderAdapter):
         *,
         api_key: str,
         base_url: str = "https://generativelanguage.googleapis.com",
-        timeout: float = 300.0,
+        timeout: float | AdapterTimeout = 300.0,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
-        self._timeout = timeout
+        if isinstance(timeout, AdapterTimeout):
+            self._timeout = timeout.request
+            self._connect_timeout = timeout.connect
+        else:
+            self._timeout = timeout
+            self._connect_timeout = 10.0
         self._client: httpx.AsyncClient | None = None
 
     # -- ProviderAdapter interface ------------------------------------------
@@ -134,7 +140,7 @@ class GeminiAdapter(ProviderAdapter):
     def _make_client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
             headers={"Content-Type": "application/json"},
-            timeout=self._timeout,
+            timeout=httpx.Timeout(self._timeout, connect=self._connect_timeout),
         )
 
     def _ensure_client(self) -> httpx.AsyncClient:

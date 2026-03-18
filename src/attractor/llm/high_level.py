@@ -880,6 +880,61 @@ async def stream_with_result(
 # ---------------------------------------------------------------------------
 
 
+class StreamObjectResult:
+    """Wrapper for streaming structured output.
+
+    Async-iterable over partial objects (dicts) as JSON accumulates.
+    After iteration, call ``.object()`` to get the final validated result.
+
+    Example::
+
+        result = await stream_object("model", "prompt", schema=schema)
+        async for partial in result:
+            print(partial)  # partial dict as JSON accumulates
+        final = result.object()  # fully parsed object
+    """
+
+    def __init__(self, events: AsyncIterator[StreamEvent]) -> None:
+        self._events = events
+        self._text_parts: list[str] = []
+        self._final_object: dict[str, Any] | None = None
+        self._done = False
+
+    async def __aiter__(self):
+        async for event in self._events:
+            if event.kind == StreamEventKind.CONTENT_DELTA:
+                delta = (event.data or {}).get("text", "")
+                if delta:
+                    self._text_parts.append(delta)
+                    # Try to parse partial JSON
+                    accumulated = "".join(self._text_parts)
+                    try:
+                        partial = json.loads(accumulated)
+                        yield partial
+                    except json.JSONDecodeError:
+                        pass  # Not yet valid JSON
+        self._done = True
+        # Parse final object
+        full_text = "".join(self._text_parts).strip()
+        if full_text:
+            try:
+                self._final_object = json.loads(full_text)
+            except json.JSONDecodeError as exc:
+                raise NoObjectGeneratedError(
+                    f"Failed to parse streamed output as JSON: {exc}"
+                ) from exc
+        else:
+            raise NoObjectGeneratedError("Streaming produced no output")
+
+    def object(self) -> dict[str, Any]:
+        """Return the final parsed object. Must be called after iteration."""
+        if not self._done:
+            raise RuntimeError("Must iterate over StreamObjectResult before calling object()")
+        if self._final_object is None:
+            raise NoObjectGeneratedError("No object was generated")
+        return self._final_object
+
+
 async def stream_object(
     model: str,
     prompt_or_messages: str | list[Message],
@@ -891,12 +946,12 @@ async def stream_object(
     provider_options: dict[str, Any] | None = None,
     client: Client | None = None,
     abort_signal: AbortSignal | None = None,
-) -> AsyncIterator[dict[str, Any] | str]:
+) -> StreamObjectResult:
     """Stream structured output with incremental JSON parsing.
 
-    Yields text deltas as strings. After all events are consumed,
-    the final yield is the parsed JSON object (dict). If parsing fails,
-    raises :class:`NoObjectGeneratedError`.
+    Returns a :class:`StreamObjectResult` that yields partial objects
+    as JSON accumulates. After iteration, call ``.object()`` for the
+    final validated result.
     """
     effective_client = client or _get_default_client()
     messages = _coerce_messages(prompt_or_messages)
@@ -912,21 +967,4 @@ async def stream_object(
         abort_signal=abort_signal,
     )
 
-    text_parts: list[str] = []
-    async for event in effective_client.stream(request):
-        if event.kind == StreamEventKind.CONTENT_DELTA:
-            delta = (event.data or {}).get("text", "")
-            if delta:
-                text_parts.append(delta)
-                yield delta
-
-    full_text = "".join(text_parts).strip()
-    if not full_text:
-        raise NoObjectGeneratedError("Streaming produced no output")
-
-    try:
-        yield json.loads(full_text)
-    except json.JSONDecodeError as exc:
-        raise NoObjectGeneratedError(
-            f"Failed to parse streamed output as JSON: {exc}"
-        ) from exc
+    return StreamObjectResult(effective_client.stream(request))

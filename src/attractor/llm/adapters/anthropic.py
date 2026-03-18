@@ -16,6 +16,7 @@ import httpx
 
 from attractor.llm.adapters.base import ProviderAdapter
 from attractor.llm.types import (
+    AdapterTimeout,
     AuthenticationError,
     ContentFilterError,
     ContentKind,
@@ -88,12 +89,17 @@ class AnthropicAdapter(ProviderAdapter):
         api_key: str,
         base_url: str = "https://api.anthropic.com",
         default_headers: dict[str, str] | None = None,
-        timeout: float = 300.0,
+        timeout: float | AdapterTimeout = 300.0,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._default_headers = default_headers or {}
-        self._timeout = timeout
+        if isinstance(timeout, AdapterTimeout):
+            self._timeout = timeout.request
+            self._connect_timeout = timeout.connect
+        else:
+            self._timeout = timeout
+            self._connect_timeout = 10.0
         self._client: httpx.AsyncClient | None = None
 
     # -- ProviderAdapter interface ------------------------------------------
@@ -151,7 +157,7 @@ class AnthropicAdapter(ProviderAdapter):
                 "content-type": "application/json",
                 **self._default_headers,
             },
-            timeout=self._timeout,
+            timeout=httpx.Timeout(self._timeout, connect=self._connect_timeout),
         )
 
     def _ensure_client(self) -> httpx.AsyncClient:

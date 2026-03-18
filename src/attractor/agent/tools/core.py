@@ -386,6 +386,7 @@ def _exec_shell(arguments: dict[str, Any], env: ExecutionEnvironment) -> str:
 def _exec_grep(arguments: dict[str, Any], env: ExecutionEnvironment) -> str:
     pattern: str = arguments["pattern"]
     path: str = arguments.get("path", env.working_directory())
+    output_mode: str = arguments.get("output_mode", "content")
     options: dict[str, Any] = {}
     if "glob_filter" in arguments:
         options["glob_filter"] = arguments["glob_filter"]
@@ -393,9 +394,19 @@ def _exec_grep(arguments: dict[str, Any], env: ExecutionEnvironment) -> str:
         options["case_insensitive"] = arguments["case_insensitive"]
     if "max_results" in arguments:
         options["max_results"] = arguments["max_results"]
-    if "output_mode" in arguments:
-        options["output_mode"] = arguments["output_mode"]
-    return env.grep(pattern, path, **options)
+    result = env.grep(pattern, path, **options)
+    if output_mode == "files_with_matches" and result:
+        # Extract unique file paths from grep output (format: file:line:content)
+        seen: set[str] = set()
+        files: list[str] = []
+        for line in result.splitlines():
+            if ":" in line:
+                file_path = line.split(":", 1)[0]
+                if file_path not in seen:
+                    seen.add(file_path)
+                    files.append(file_path)
+        return "\n".join(files)
+    return result
 
 
 def _exec_glob(arguments: dict[str, Any], env: ExecutionEnvironment) -> str:
