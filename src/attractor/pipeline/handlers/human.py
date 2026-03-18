@@ -143,8 +143,8 @@ class WaitForHumanHandler(Handler):
                     context_updates={"human_input": f"timeout:default:{default_choice}"},
                 )
             return Outcome(
-                status=StageStatus.FAIL,
-                failure_reason="Human input timed out.",
+                status=StageStatus.RETRY,
+                failure_reason="Human gate timeout, no default.",
             )
 
         if answer.value == AnswerValue.NO:

@@ -194,10 +194,16 @@ async def _retry_call(
             if not exc.retryable or attempt >= policy.max_retries:
                 raise
 
-            # Use retry_after from error if available
-            wait = exc.retry_after if exc.retry_after else delay
-            if policy.jitter:
-                wait *= 0.5 + random.random()
+            # Use retry_after from error if available (spec Section 6.6)
+            if exc.retry_after and exc.retry_after > policy.max_delay:
+                # Retry-After exceeds max_delay — abort immediately (spec Section 6.6)
+                raise
+            if exc.retry_after:
+                wait = exc.retry_after  # Use provider delay as-is, no jitter
+            else:
+                wait = delay
+                if policy.jitter:
+                    wait *= 0.5 + random.random()
             wait = min(wait, policy.max_delay)
 
             # Invoke on_retry callback if provided (spec Section 6.6)

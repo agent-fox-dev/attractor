@@ -488,6 +488,11 @@ def run(
                         reason="goal_gate_fallback",
                     )
                     continue
+                else:
+                    # No retry target at any level — fail per spec Section 3.4
+                    raise RuntimeError(
+                        f"Goal gate '{failing_gate.id}' unsatisfied and no retry target available"
+                    )
             final_outcome = outcome
             break
 

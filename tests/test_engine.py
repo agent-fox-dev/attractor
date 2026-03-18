@@ -1001,3 +1001,44 @@ def test_reachability_error_severity():
     reachability_diags = [d for d in diags if d.rule == "reachability"]
     assert len(reachability_diags) > 0
     assert all(d.severity == Severity.ERROR for d in reachability_diags)
+
+
+def test_goal_gate_no_retry_target_raises():
+    """Goal gate unsatisfied at terminal with no retry target raises error (spec Section 3.4)."""
+    dot = """
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        gate  [shape=box, prompt="Check", goal_gate="true"]
+        start -> gate -> exit
+    }
+    """
+    # Use a backend that always returns FAIL for the gate node
+    def fail_backend(node, context, graph, logs_root=None, emitter=None):
+        if node.id == "gate":
+            return Outcome(status=StageStatus.FAIL, failure_reason="gate failed")
+        return Outcome(status=StageStatus.SUCCESS)
+
+    with pytest.raises(RuntimeError, match="Goal gate.*unsatisfied"):
+        _run(dot, backend=fail_backend)
+
+
+def test_human_timeout_returns_retry():
+    """Human handler returns RETRY on timeout with no default (spec Section 4.6)."""
+    from attractor.pipeline.handlers.human import WaitForHumanHandler
+    from attractor.pipeline.context import Context
+
+    graph = parse_dot("""
+    digraph T {
+        start [shape=Mdiamond]
+        exit [shape=Msquare]
+        ask [shape=hexagon, prompt="Continue?"]
+        start -> ask -> exit
+    }
+    """)
+    # Use a QueueInterviewer with very short timeout and no answers — triggers timeout
+    interviewer = QueueInterviewer(timeout=0.01)
+    handler = WaitForHumanHandler(interviewer=interviewer)
+    context = Context()
+    outcome = handler.execute(graph.nodes["ask"], context, graph)
+    assert outcome.status == StageStatus.RETRY

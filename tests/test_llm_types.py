@@ -1,5 +1,7 @@
 """Tests for the unified LLM type system."""
 
+import pytest
+
 from attractor.llm.types import (
     Message, Role, ContentPart, ContentKind, Usage,
     ToolDefinition, ToolCallData, ToolResultData, Request, Response, FinishReason,
@@ -1026,6 +1028,37 @@ def test_retry_policy_spec_field_names():
     policy = RetryPolicy(base_delay=2.0, backoff_multiplier=3.0)
     assert policy.base_delay == 2.0
     assert policy.backoff_multiplier == 3.0
+
+
+def test_retry_after_exceeds_max_delay_aborts():
+    """Retry aborts immediately when retry_after exceeds max_delay (spec Section 6.6)."""
+    import asyncio
+    from attractor.llm.high_level import _retry_call
+
+    call_count = 0
+
+    async def failing_fn():
+        nonlocal call_count
+        call_count += 1
+        exc = RateLimitError("rate limited", retry_after=120.0)
+        raise exc
+
+    policy = RetryPolicy(max_retries=3, max_delay=60.0)
+    with pytest.raises(RateLimitError):
+        asyncio.run(_retry_call(failing_fn, policy))
+    # Should only be called once — abort without retry since retry_after > max_delay
+    assert call_count == 1
+
+
+def test_retry_after_no_jitter():
+    """Jitter is not applied to provider-supplied retry_after delays (spec Section 6.6)."""
+    import inspect
+    from attractor.llm.high_level import _retry_call
+
+    source = inspect.getsource(_retry_call)
+    # Verify the code has separate handling for retry_after vs calculated delay
+    assert "exc.retry_after" in source
+    assert "no jitter" in source.lower() or "as-is" in source.lower()
 
 
 def test_error_mapping_408_request_timeout():

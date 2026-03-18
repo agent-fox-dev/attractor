@@ -72,6 +72,10 @@ def resolve_key(key: str, outcome: "Outcome", context: "Context") -> str:
     if key == "preferred_label":
         return outcome.preferred_label
     if key.startswith("context."):
+        # Try full key first, then stripped prefix (spec Section 10.4)
+        val = context.get_string(key, "")
+        if val:
+            return val
         ctx_key = key[len("context."):]
         return context.get_string(ctx_key, "")
 

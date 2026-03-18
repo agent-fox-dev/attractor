@@ -52,3 +52,19 @@ def test_preferred_label():
     o = Outcome(status=StageStatus.SUCCESS, preferred_label="approve")
     assert evaluate_condition("preferred_label=approve", o, _ctx()) is True
     assert evaluate_condition("preferred_label=reject", o, _ctx()) is False
+
+
+def test_context_prefix_full_key_first():
+    """context.foo tries full key 'context.foo' first, then stripped 'foo' (spec Section 10.4)."""
+    o = Outcome(status=StageStatus.SUCCESS)
+    # Set a key with the full "context.foo" name
+    c = Context()
+    c.set("context.myvar", "full_val")
+    c.set("myvar", "stripped_val")
+    # Should find "context.myvar" first
+    assert evaluate_condition("context.myvar=full_val", o, c) is True
+
+    # If only the stripped key exists, should still work
+    c2 = Context()
+    c2.set("myvar", "val")
+    assert evaluate_condition("context.myvar=val", o, c2) is True
