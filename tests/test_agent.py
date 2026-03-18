@@ -368,6 +368,70 @@ def test_docker_timeout_error_format():
     assert "timeout_ms parameter" in source
 
 
+def test_edit_file_patch(tmp_path):
+    """edit_file supports unified diff patch format."""
+    from attractor.agent.tools.core import _exec_edit_file
+
+    env = LocalExecutionEnvironment(working_dir=str(tmp_path))
+    file_path = str(tmp_path / "hello.py")
+    env.write_file(file_path, "def hello():\n    print('hello')\n    return 1\n")
+
+    patch = """\
+@@ -1,3 +1,3 @@
+ def hello():
+-    print('hello')
++    print('world')
+     return 1
+"""
+    result = _exec_edit_file({"file_path": file_path, "patch": patch}, env)
+    assert "Applied patch" in result
+    content = Path(tmp_path / "hello.py").read_text()
+    assert "print('world')" in content
+    assert "print('hello')" not in content
+
+
+def test_edit_file_patch_mutually_exclusive(tmp_path):
+    """edit_file rejects patch + old_string together."""
+    import pytest
+    from attractor.agent.tools.core import _exec_edit_file
+
+    env = LocalExecutionEnvironment(working_dir=str(tmp_path))
+    file_path = str(tmp_path / "test.txt")
+    env.write_file(file_path, "hello")
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        _exec_edit_file(
+            {"file_path": file_path, "patch": "@@ -1 +1 @@\n-hello\n+world\n", "old_string": "hello"},
+            env,
+        )
+
+
+def test_denied_tool_permission():
+    """Denied tools return an error without executing."""
+    from attractor.agent.session import Session
+    from attractor.llm.types import ToolCallData
+
+    env = LocalExecutionEnvironment()
+    profile = AnthropicProfile()
+    config = SessionConfig(denied_tools=["shell"])
+    session = Session(profile=profile, execution_env=env, config=config)
+
+    tc = ToolCallData(id="tc1", name="shell", arguments={"command": "echo hi"})
+    result = session._execute_single_tool(tc)
+    assert result.is_error is True
+    assert "denied" in result.content.lower()
+
+
+def test_tool_definition_strict_field():
+    """ToolDefinition has a strict field."""
+    from attractor.llm.types import ToolDefinition
+
+    td = ToolDefinition(name="test", description="test", strict=True)
+    assert td.strict is True
+    td2 = ToolDefinition(name="test", description="test")
+    assert td2.strict is False
+
+
 def test_read_file_image(tmp_path):
     """read_file returns base64 data for image files."""
     import base64

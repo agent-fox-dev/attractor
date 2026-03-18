@@ -20,6 +20,7 @@ class EventKind(StrEnum):
     AWAITING_INPUT = "awaiting_input"
     TURN_LIMIT = "turn_limit"
     LOOP_DETECTION = "loop_detection"
+    TOOL_APPROVAL_REQUIRED = "tool_approval_required"
     ERROR = "error"
 
 

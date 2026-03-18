@@ -309,6 +309,9 @@ class AnthropicAdapter(ProviderAdapter):
             thinking = {"type": "enabled", "budget_tokens": self._effort_to_budget(request)}
             payload["thinking"] = thinking
 
+        if request.metadata:
+            payload["metadata"] = request.metadata
+
         if stream:
             payload["stream"] = True
 

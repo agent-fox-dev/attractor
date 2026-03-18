@@ -357,12 +357,15 @@ class OpenAIAdapter(ProviderAdapter):
 
     @staticmethod
     def _convert_tool(tool: ToolDefinition) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "type": "function",
             "name": tool.name,
             "description": tool.description,
             "parameters": tool.parameters,
         }
+        if tool.strict:
+            d["strict"] = True
+        return d
 
     # -- Response parsing ---------------------------------------------------
 

@@ -266,6 +266,7 @@ class ToolDefinition(BaseModel):
     name: str
     description: str = ""
     parameters: dict[str, Any] = Field(default_factory=dict)
+    strict: bool = False
 
 
 # Public alias used in high-level API signatures.

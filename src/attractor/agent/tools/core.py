@@ -72,11 +72,9 @@ WRITE_FILE_DEF = ToolDefinition(
 EDIT_FILE_DEF = ToolDefinition(
     name="edit_file",
     description=(
-        "Replace an exact string occurrence in a file. "
-        "The old_string must match exactly (including whitespace and indentation). "
-        "If old_string is not unique in the file and replace_all is false, "
-        "an error is returned asking you to provide more surrounding context "
-        "to make the match unique."
+        "Edit a file by either replacing an exact string or applying a unified diff patch. "
+        "Use old_string/new_string for simple replacements, or patch for unified diffs. "
+        "These modes are mutually exclusive."
     ),
     parameters={
         "type": "object",
@@ -97,8 +95,12 @@ EDIT_FILE_DEF = ToolDefinition(
                 "type": "boolean",
                 "description": "Replace all occurrences. Default: false.",
             },
+            "patch": {
+                "type": "string",
+                "description": "Unified diff to apply (mutually exclusive with old_string/new_string).",
+            },
         },
-        "required": ["file_path", "old_string", "new_string"],
+        "required": ["file_path"],
     },
 )
 
@@ -210,8 +212,85 @@ def _exec_write_file(arguments: dict[str, Any], env: ExecutionEnvironment) -> st
     return f"Successfully wrote {byte_count} bytes to {file_path}"
 
 
+def _apply_unified_diff(file_path: str, patch: str, env: ExecutionEnvironment) -> str:
+    """Apply a unified diff patch to a file."""
+    from pathlib import Path
+
+    p = Path(file_path)
+    if not p.is_absolute():
+        p = Path(env.working_directory()) / p
+
+    if p.exists():
+        original = p.read_text(encoding="utf-8", errors="replace")
+        original_lines = original.splitlines(keepends=True)
+    else:
+        original_lines = []
+
+    # Parse unified diff hunks
+    patch_lines = patch.splitlines(keepends=True)
+    # Ensure all lines have newline endings for processing
+    patch_lines = [l if l.endswith("\n") else l + "\n" for l in patch_lines]
+
+    hunks: list[tuple[int, int, list[str]]] = []
+    i = 0
+    while i < len(patch_lines):
+        line = patch_lines[i]
+        if line.startswith("@@"):
+            # Parse hunk header: @@ -start,count +start,count @@
+            import re
+            m = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", line)
+            if not m:
+                i += 1
+                continue
+            old_start = int(m.group(1))
+            hunk_lines: list[str] = []
+            i += 1
+            while i < len(patch_lines) and not patch_lines[i].startswith("@@") and not patch_lines[i].startswith("diff ") and not patch_lines[i].startswith("---") and not patch_lines[i].startswith("+++"):
+                hunk_lines.append(patch_lines[i])
+                i += 1
+            hunks.append((old_start, 0, hunk_lines))
+        else:
+            i += 1
+
+    if not hunks:
+        raise ValueError("No valid hunks found in the patch.")
+
+    # Apply hunks in reverse order to preserve line numbers
+    result_lines = list(original_lines)
+    for old_start, _, hunk_lines in reversed(hunks):
+        # Build expected removed lines and new lines
+        remove_lines: list[str] = []
+        add_lines: list[str] = []
+        context_before = 0
+        for hl in hunk_lines:
+            if hl.startswith("-"):
+                remove_lines.append(hl[1:])
+            elif hl.startswith("+"):
+                add_lines.append(hl[1:])
+            elif hl.startswith(" "):
+                # Context line — part of both old and new
+                remove_lines.append(hl[1:])
+                add_lines.append(hl[1:])
+
+        # Find where to apply (0-indexed)
+        start_idx = old_start - 1
+        # Replace the old lines with new lines
+        result_lines[start_idx:start_idx + len(remove_lines)] = add_lines
+
+    content = "".join(result_lines)
+    env.write_file(file_path, content)
+    return f"Applied patch to {file_path} ({len(hunks)} hunk(s))."
+
+
 def _exec_edit_file(arguments: dict[str, Any], env: ExecutionEnvironment) -> str:
     file_path: str = arguments["file_path"]
+
+    # Patch mode
+    if "patch" in arguments:
+        if "old_string" in arguments or "new_string" in arguments:
+            raise ValueError("patch is mutually exclusive with old_string/new_string.")
+        return _apply_unified_diff(file_path, arguments["patch"], env)
+
     old_string: str = arguments["old_string"]
     new_string: str = arguments["new_string"]
     replace_all: bool = arguments.get("replace_all", False)

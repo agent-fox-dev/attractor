@@ -121,6 +121,9 @@ class SessionConfig:
     max_output_tokens: int = 0
     max_total_tokens: int = 0
     context_window_size: int = 0
+    auto_approve_tools: list[str] = field(default_factory=list)
+    prompt_user_tools: list[str] = field(default_factory=list)
+    denied_tools: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -530,6 +533,23 @@ class Session:
             tool_name=tool_call.name,
             call_id=tool_call.id,
         )
+
+        # Permission check (Section 7.2)
+        if tool_call.name in self.config.denied_tools:
+            error_msg = f"Tool '{tool_call.name}' is denied by permission policy."
+            self._emit(EventKind.TOOL_CALL_END, call_id=tool_call.id, error=error_msg)
+            return ToolResultData(
+                tool_call_id=tool_call.id, content=error_msg, is_error=True
+            )
+        if (self.config.prompt_user_tools
+                and tool_call.name in self.config.prompt_user_tools
+                and tool_call.name not in self.config.auto_approve_tools):
+            # Emit an event so the host can prompt the user for approval
+            self._emit(
+                EventKind.TOOL_APPROVAL_REQUIRED,
+                tool_name=tool_call.name,
+                call_id=tool_call.id,
+            )
 
         registered = self.profile.tool_registry.get(tool_call.name)
         if registered is None:
