@@ -84,6 +84,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
 
     def __init__(self, working_dir: str | None = None) -> None:
         self._working_dir = working_dir or os.getcwd()
+        self._active_processes: set[subprocess.Popen] = set()
 
     # -- helpers -----------------------------------------------------------
 
@@ -201,6 +202,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
                 env=env,
                 **kwargs,
             )
+            self._active_processes.add(proc)
         except Exception as exc:
             elapsed = int((time.monotonic() - start) * 1000)
             return ExecResult(
@@ -238,6 +240,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
                     pass
                 stdout_bytes, stderr_bytes = proc.communicate()
 
+        self._active_processes.discard(proc)
         elapsed = int((time.monotonic() - start) * 1000)
         stdout = stdout_bytes.decode("utf-8", errors="replace")
         stderr = stderr_bytes.decode("utf-8", errors="replace")
@@ -257,6 +260,33 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
             timed_out=timed_out,
             duration_ms=elapsed,
         )
+
+    def kill_running_processes(self) -> None:
+        """Kill all active command processes per spec Appendix B."""
+        procs = list(self._active_processes)
+        self._active_processes.clear()
+        # SIGTERM to all process groups
+        for proc in procs:
+            try:
+                if sys.platform != "win32":
+                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                else:
+                    proc.terminate()
+            except (ProcessLookupError, OSError):
+                pass
+        # Wait 2s for graceful shutdown
+        import time as _time
+        _time.sleep(2)
+        # SIGKILL any remaining
+        for proc in procs:
+            if proc.poll() is None:
+                try:
+                    if sys.platform != "win32":
+                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    else:
+                        proc.kill()
+                except (ProcessLookupError, OSError):
+                    pass
 
     # -- search operations -------------------------------------------------
 

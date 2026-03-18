@@ -29,7 +29,10 @@ class ProviderProfile(ABC):
 
     @abstractmethod
     def build_system_prompt(
-        self, environment: ExecutionEnvironment, project_docs: str = ""
+        self,
+        environment: ExecutionEnvironment,
+        project_docs: str = "",
+        user_instructions: str = "",
     ) -> str:
         """Build the full system prompt for this provider profile.
 
@@ -39,6 +42,8 @@ class ProviderProfile(ABC):
             The execution environment (provides working dir, platform, etc.).
         project_docs:
             Discovered project documentation content (AGENTS.md, etc.).
+        user_instructions:
+            User instruction overrides, appended last with highest priority.
         """
         ...
 

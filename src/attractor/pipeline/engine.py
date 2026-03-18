@@ -304,6 +304,11 @@ def run(
     emitter = emitter or EventEmitter()
 
     context = Context()
+    # Mirror graph attributes into context (spec Section 5.1)
+    if graph.goal:
+        context.set("graph.goal", graph.goal)
+    if graph.name:
+        context.set("graph.name", graph.name)
     if config.context_values:
         context.apply_updates(config.context_values)
 

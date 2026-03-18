@@ -124,6 +124,7 @@ class SessionConfig:
     auto_approve_tools: list[str] = field(default_factory=list)
     prompt_user_tools: list[str] = field(default_factory=list)
     denied_tools: list[str] = field(default_factory=list)
+    user_instructions: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -431,9 +432,14 @@ class Session:
         self.followup_queue.append(message)
 
     def abort(self) -> None:
-        """Signal the loop to abort after the current step."""
+        """Signal the loop to abort after the current step.
+
+        Per spec Appendix B, kills running processes and cleans up subagents.
+        """
         self.abort_signaled = True
         self.state = SessionState.CLOSED
+        # Kill running command processes (spec Appendix B step 2-4)
+        self.execution_env.kill_running_processes()
         # Clean up active subagents
         for agent in list(self.subagents.values()):
             if hasattr(agent, 'abort'):
@@ -443,6 +449,8 @@ class Session:
         """Close the session and clean up resources."""
         self.abort_signaled = True
         self.state = SessionState.CLOSED
+        # Kill running command processes
+        self.execution_env.kill_running_processes()
         # Clean up active subagents
         for agent in list(self.subagents.values()):
             if hasattr(agent, 'close'):
@@ -689,6 +697,7 @@ class Session:
             system_prompt = self.profile.build_system_prompt(
                 environment=self.execution_env,
                 project_docs=project_docs,
+                user_instructions=self.config.user_instructions,
             )
             messages = convert_history_to_messages(self.history)
             tool_defs = self.profile.tools()
@@ -817,6 +826,7 @@ class Session:
             system_prompt = self.profile.build_system_prompt(
                 environment=self.execution_env,
                 project_docs=project_docs,
+                user_instructions=self.config.user_instructions,
             )
             messages = convert_history_to_messages(self.history)
             tool_defs = self.profile.tools()

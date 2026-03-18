@@ -98,3 +98,10 @@ class ExecutionEnvironment(ABC):
     def cleanup(self) -> None:
         """Called once when the session ends.  Override to tear down resources."""
         pass
+
+    def kill_running_processes(self) -> None:
+        """Kill all running command processes (SIGTERM, wait 2s, SIGKILL).
+
+        Called during abort/graceful shutdown per spec Appendix B.
+        """
+        pass

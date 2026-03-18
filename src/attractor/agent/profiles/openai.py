@@ -312,7 +312,8 @@ class OpenAIProfile(ProviderProfile):
         )
 
     def build_system_prompt(
-        self, environment: ExecutionEnvironment, project_docs: str = ""
+        self, environment: ExecutionEnvironment, project_docs: str = "",
+        user_instructions: str = "",
     ) -> str:
         today = datetime.date.today().isoformat()
         platform = environment.platform()
@@ -361,6 +362,9 @@ Git branch: {environment.git_branch()}
 
         if project_docs:
             prompt += f"\n\n# Project Instructions\n\n{project_docs}"
+
+        if user_instructions:
+            prompt += f"\n\n# User Instructions\n\n{user_instructions}"
 
         return prompt
 

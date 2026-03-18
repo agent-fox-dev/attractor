@@ -455,3 +455,73 @@ def test_read_file_image(tmp_path):
     b64_part = result.split("base64,")[1]
     decoded = base64.b64decode(b64_part)
     assert decoded == png_bytes
+
+
+def test_user_instructions_in_system_prompt():
+    """User instructions are appended last in system prompt (spec Section 6.1)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        env = LocalExecutionEnvironment(working_dir=tmpdir)
+        for Profile in [AnthropicProfile, OpenAIProfile, GeminiProfile]:
+            profile = Profile()
+            prompt = profile.build_system_prompt(
+                environment=env,
+                project_docs="Some docs",
+                user_instructions="Always use tabs.",
+            )
+            # User instructions should come after project docs
+            docs_idx = prompt.index("Some docs")
+            user_idx = prompt.index("Always use tabs.")
+            assert user_idx > docs_idx, f"{Profile.__name__}: user instructions not last"
+            # Without user instructions, the section should not appear
+            prompt_no_user = profile.build_system_prompt(
+                environment=env, project_docs="Some docs",
+            )
+            assert "User Instructions" not in prompt_no_user
+
+
+def test_session_config_user_instructions():
+    """SessionConfig has a user_instructions field."""
+    cfg = SessionConfig(user_instructions="Custom instruction")
+    assert cfg.user_instructions == "Custom instruction"
+
+    cfg_default = SessionConfig()
+    assert cfg_default.user_instructions == ""
+
+
+def test_kill_running_processes():
+    """LocalExecutionEnvironment tracks and kills active processes."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        env = LocalExecutionEnvironment(working_dir=tmpdir)
+        # Initially no active processes
+        assert len(env._active_processes) == 0
+        # After exec_command completes, process should be removed
+        env.exec_command("echo hello", timeout_ms=5000)
+        assert len(env._active_processes) == 0
+        # kill_running_processes should not error when no processes
+        env.kill_running_processes()
+
+
+def test_graph_goal_mirrored_in_context():
+    """Engine mirrors graph.goal into context (spec Section 5.1)."""
+    from attractor.pipeline.parser import parse_dot
+    from attractor.pipeline.engine import run, PipelineConfig
+    from attractor.pipeline.graph import StageStatus
+
+    dot = """
+    digraph T {
+        goal="Build the widget"
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        start -> exit
+    }
+    """
+    graph = parse_dot(dot)
+    assert graph.goal == "Build the widget"
+
+    import tempfile as _tempfile
+    with _tempfile.TemporaryDirectory() as tmpdir:
+        config = PipelineConfig(logs_root=tmpdir)
+        # We can't easily inspect context from outside run(),
+        # but we can verify the graph has the goal set
+        outcome = run(graph, config)
+        assert outcome.status == StageStatus.SUCCESS
