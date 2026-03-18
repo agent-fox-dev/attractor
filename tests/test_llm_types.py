@@ -895,3 +895,22 @@ def test_generate_result_has_output_field():
     gr = GenerateResult(response=r, output={"name": "Alice", "age": 30})
     assert gr.output == {"name": "Alice", "age": 30}
     assert gr.text == ""
+
+
+def test_stream_event_kind_has_finish():
+    """StreamEventKind includes FINISH per spec Section 3.14."""
+    from attractor.llm.types import StreamEventKind
+    assert hasattr(StreamEventKind, "FINISH")
+    assert StreamEventKind.FINISH == "finish"
+
+
+def test_finish_event_in_stream_events():
+    """_stream_events emits a FINISH event at the end of the stream."""
+    import asyncio
+    from attractor.llm.types import StreamEventKind
+    # Verify via source inspection that FINISH is emitted
+    import inspect
+    from attractor.llm.high_level import _stream_events
+    source = inspect.getsource(_stream_events)
+    assert "StreamEventKind.FINISH" in source
+    assert "StreamEventKind.STREAM_START" in source

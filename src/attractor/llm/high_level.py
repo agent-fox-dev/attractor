@@ -554,6 +554,8 @@ async def _stream_events(
         # Accumulate text and tool calls from the stream
         text_parts: list[str] = []
         tool_calls: list[ToolCallData] = []
+        last_usage: Usage | None = None
+        last_finish: FinishReason | None = None
 
         async for event in effective_client.stream(request):
             if event.kind == StreamEventKind.CONTENT_DELTA:
@@ -563,10 +565,19 @@ async def _stream_events(
             elif event.kind == StreamEventKind.TOOL_CALL_END:
                 if event.content_part and event.content_part.tool_call:
                     tool_calls.append(event.content_part.tool_call)
+            if event.usage:
+                last_usage = event.usage
+            if event.finish_reason:
+                last_finish = event.finish_reason
             yield event
 
         # If no tool calls or no executor, we're done
         if not tool_calls or tool_executor is None or _round >= max_tool_rounds:
+            yield StreamEvent(
+                kind=StreamEventKind.FINISH,
+                usage=last_usage,
+                finish_reason=last_finish or FinishReason.STOP,
+            )
             break
 
         # Execute tools

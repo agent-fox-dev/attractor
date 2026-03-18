@@ -66,6 +66,7 @@ class StreamEventKind(StrEnum):
     THINKING_END = "thinking_end"
     STREAM_START = "stream_start"
     STEP_FINISH = "step_finish"
+    FINISH = "finish"
     USAGE = "usage"
     DONE = "done"
     ERROR = "error"
