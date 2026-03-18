@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import queue
+import subprocess
 import threading
 import time
 import uuid
@@ -263,8 +264,29 @@ class PipelineHTTPHandler(BaseHTTPRequestHandler):
             dot_source = getattr(run, "dot_source", "")
             if not dot_source:
                 self._send_json({"format": "dot", "content": ""})
-            else:
-                self._send_json({"format": "dot", "content": dot_source})
+                return
+            # Try to render SVG via Graphviz
+            try:
+                proc = subprocess.run(
+                    ["dot", "-Tsvg"],
+                    input=dot_source,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if proc.returncode == 0 and "<svg" in proc.stdout:
+                    body = proc.stdout.encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "image/svg+xml")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+            # Fallback: return raw DOT
+            self._send_json({"format": "dot", "content": dot_source})
             return
 
         self._send_error("Not found", 404)

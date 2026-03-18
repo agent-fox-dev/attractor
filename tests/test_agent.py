@@ -324,6 +324,50 @@ def test_git_branch_method():
     assert isinstance(branch, str)
 
 
+def test_docker_env_has_git_methods():
+    """DockerExecutionEnvironment has git_branch, git_context, is_git_repo methods."""
+    from attractor.agent.execution.docker import DockerExecutionEnvironment
+    env = DockerExecutionEnvironment(image="python:3.12-slim")
+    assert hasattr(env, "is_git_repo")
+    assert hasattr(env, "git_branch")
+    assert hasattr(env, "git_context")
+    assert callable(env.is_git_repo)
+    assert callable(env.git_branch)
+    assert callable(env.git_context)
+
+
+def test_ssh_env_has_git_methods():
+    """SSHExecutionEnvironment has git_branch, git_context, is_git_repo methods."""
+    from attractor.agent.execution.ssh import SSHExecutionEnvironment
+    env = SSHExecutionEnvironment(host="user@localhost")
+    assert hasattr(env, "is_git_repo")
+    assert hasattr(env, "git_branch")
+    assert hasattr(env, "git_context")
+    assert callable(env.is_git_repo)
+    assert callable(env.git_branch)
+    assert callable(env.git_context)
+
+
+def test_ssh_timeout_error_format():
+    """SSH timeout error message matches the standard format."""
+    from attractor.agent.execution.ssh import SSHExecutionEnvironment
+    import inspect
+    source = inspect.getsource(SSHExecutionEnvironment)
+    assert "[ERROR: Command timed out after" in source
+    assert "timeout_ms parameter" in source
+
+
+def test_docker_timeout_error_format():
+    """Docker timeout error message matches the standard format."""
+    from attractor.agent.execution.docker import DockerExecutionEnvironment
+    # We can't run Docker in tests, but we can verify the message format
+    # by checking the source code pattern is consistent
+    import inspect
+    source = inspect.getsource(DockerExecutionEnvironment)
+    assert "[ERROR: Command timed out after" in source
+    assert "timeout_ms parameter" in source
+
+
 def test_read_file_image(tmp_path):
     """read_file returns base64 data for image files."""
     import base64

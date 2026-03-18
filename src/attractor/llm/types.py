@@ -382,6 +382,7 @@ class Response(BaseModel):
     content: list[ContentPart] = Field(default_factory=list)
     usage: Usage = Field(default_factory=Usage)
     finish_reason: FinishReason = FinishReason.STOP
+    raw_finish_reason: str | None = None  # Provider's native finish reason string
     raw: dict[str, Any] | None = None
     provider_data: dict[str, Any] | None = None  # Alias for raw (backwards compat)
     warnings: list[ResponseWarning] = Field(default_factory=list)

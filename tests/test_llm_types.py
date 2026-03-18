@@ -408,6 +408,16 @@ def test_response_raw_field():
     assert r.raw["id"] == "r1"
 
 
+def test_response_raw_finish_reason():
+    r = Response(
+        id="r1", model="test",
+        finish_reason=FinishReason.STOP,
+        raw_finish_reason="end_turn",
+    )
+    assert r.finish_reason == FinishReason.STOP
+    assert r.raw_finish_reason == "end_turn"
+
+
 def test_response_message_property():
     from attractor.llm.types import Role
     r = Response(

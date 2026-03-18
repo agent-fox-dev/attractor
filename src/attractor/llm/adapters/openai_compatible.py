@@ -214,6 +214,7 @@ class OpenAICompatibleAdapter(ProviderAdapter):
             content=parts,
             usage=usage,
             finish_reason=finish_reason,
+            raw_finish_reason=fr_str,
         )
 
     async def stream(self, request: Request) -> AsyncIterator[StreamEvent]:

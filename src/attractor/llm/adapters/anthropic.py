@@ -467,6 +467,7 @@ class AnthropicAdapter(ProviderAdapter):
             content=content,
             usage=usage,
             finish_reason=finish,
+            raw_finish_reason=stop_reason,
             raw=raw,
             provider_data=raw,
         )

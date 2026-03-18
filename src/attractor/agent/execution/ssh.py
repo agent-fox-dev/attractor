@@ -83,7 +83,12 @@ class SSHExecutionEnvironment(ExecutionEnvironment):
             elapsed = int((time.monotonic() - start) * 1000)
             return ExecResult(
                 stdout="",
-                stderr=f"Command timed out after {timeout_ms}ms",
+                stderr=(
+                    f"\n[ERROR: Command timed out after {timeout_ms}ms. "
+                    f"Partial output is shown above. "
+                    f"You can retry with a longer timeout by setting the "
+                    f"timeout_ms parameter.]"
+                ),
                 exit_code=-1,
                 timed_out=True,
                 duration_ms=elapsed,
@@ -187,3 +192,32 @@ class SSHExecutionEnvironment(ExecutionEnvironment):
     def os_version(self) -> str:
         result = self._ssh_exec("uname -a", timeout_ms=3000)
         return result.stdout.strip()
+
+    def is_git_repo(self) -> bool:
+        result = self.exec_command("git rev-parse --git-dir", timeout_ms=3000)
+        return result.exit_code == 0
+
+    def git_branch(self) -> str:
+        result = self.exec_command("git branch --show-current", timeout_ms=3000)
+        return result.stdout.strip() if result.exit_code == 0 else ""
+
+    def git_context(self) -> str:
+        if not self.is_git_repo():
+            return ""
+        parts: list[str] = []
+        result = self.exec_command("git branch --show-current", timeout_ms=3000)
+        if result.exit_code == 0 and result.stdout.strip():
+            parts.append(f"Branch: {result.stdout.strip()}")
+        result = self.exec_command("git status --porcelain", timeout_ms=3000)
+        if result.exit_code == 0:
+            lines = [l for l in result.stdout.strip().splitlines() if l.strip()]
+            modified = sum(1 for l in lines if l.startswith(" M") or l.startswith("M"))
+            untracked = sum(1 for l in lines if l.startswith("??"))
+            if modified or untracked:
+                parts.append(f"Modified: {modified}, Untracked: {untracked}")
+            else:
+                parts.append("Working tree: clean")
+        result = self.exec_command("git log --oneline -5 --no-decorate", timeout_ms=3000)
+        if result.exit_code == 0 and result.stdout.strip():
+            parts.append(f"Recent commits:\n{result.stdout.strip()}")
+        return "\n".join(parts)

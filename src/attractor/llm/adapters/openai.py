@@ -424,6 +424,7 @@ class OpenAIAdapter(ProviderAdapter):
             content=content,
             usage=usage,
             finish_reason=finish,
+            raw_finish_reason=status,
             raw=raw,
             provider_data=raw,
         )

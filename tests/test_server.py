@@ -129,3 +129,39 @@ def test_questions_endpoint(server_url):
 def test_questions_not_found(server_url):
     status, data = _request(*server_url, "GET", "/pipelines/nonexistent/questions")
     assert status == 404
+
+
+def test_graph_endpoint(server_url):
+    """GET /pipelines/{id}/graph returns graph data (SVG or DOT)."""
+    host, port = server_url
+    _, create_data = _request(host, port, "POST", "/pipelines", {"dot_source": SIMPLE_DOT})
+    run_id = create_data["id"]
+
+    # Wait for completion
+    for _ in range(50):
+        time.sleep(0.1)
+        _, data = _request(host, port, "GET", f"/pipelines/{run_id}")
+        if data.get("status") != "running":
+            break
+
+    # Fetch the graph - may be SVG (if Graphviz installed) or DOT JSON
+    conn = __import__("http.client", fromlist=["HTTPConnection"]).HTTPConnection(host, port, timeout=10)
+    conn.request("GET", f"/pipelines/{run_id}/graph")
+    resp = conn.getresponse()
+    assert resp.status == 200
+    content_type = resp.getheader("Content-Type", "")
+    body = resp.read().decode()
+    conn.close()
+    # Either SVG or JSON with DOT source
+    assert "svg" in content_type or "json" in content_type
+    if "svg" in content_type:
+        assert "<svg" in body
+    else:
+        data = json.loads(body)
+        assert data["format"] == "dot"
+        assert "digraph" in data["content"]
+
+
+def test_graph_not_found(server_url):
+    status, data = _request(*server_url, "GET", "/pipelines/nonexistent/graph")
+    assert status == 404

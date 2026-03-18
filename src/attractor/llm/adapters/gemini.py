@@ -405,6 +405,7 @@ class GeminiAdapter(ProviderAdapter):
             content=content,
             usage=usage,
             finish_reason=finish,
+            raw_finish_reason=finish_reason_str,
             raw=raw,
             provider_data=raw,
         )
