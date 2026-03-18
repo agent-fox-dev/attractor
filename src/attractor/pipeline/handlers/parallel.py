@@ -170,9 +170,14 @@ class ParallelHandler(Handler):
                         )
 
         result_map = _result_map()
+        failures = [k for k, v in results.items() if v.status == StageStatus.FAIL]
+
+        # "ignore" policy: filter failed results from context (spec Section 4.8)
+        if failures and error_policy == "ignore":
+            result_map = {k: v for k, v in result_map.items() if k not in failures}
+
         context.set("parallel.results", result_map)
 
-        failures = [k for k, v in results.items() if v.status == StageStatus.FAIL]
         if failures and error_policy != "ignore":
             _emit(PipelineEventKind.PARALLEL_COMPLETED, node_id=node.id, status="partial_success")
             return Outcome(

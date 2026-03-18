@@ -531,7 +531,7 @@ class OpenAIAdapter(ProviderAdapter):
         if etype == "response.output_text.delta":
             text = data.get("delta", "")
             yield StreamEvent(
-                kind=StreamEventKind.CONTENT_DELTA,
+                kind=StreamEventKind.TEXT_DELTA,
                 data={"text": text},
                 delta=text,
                 content_part=ContentPart(
@@ -541,7 +541,7 @@ class OpenAIAdapter(ProviderAdapter):
             )
 
         elif etype == "response.output_text.done":
-            yield StreamEvent(kind=StreamEventKind.CONTENT_END)
+            yield StreamEvent(kind=StreamEventKind.TEXT_END)
 
         elif etype == "response.function_call_arguments.delta":
             yield StreamEvent(
@@ -575,7 +575,7 @@ class OpenAIAdapter(ProviderAdapter):
         elif etype == "response.content_part.added":
             part = data.get("part", {})
             if part.get("type") == "output_text":
-                yield StreamEvent(kind=StreamEventKind.CONTENT_START)
+                yield StreamEvent(kind=StreamEventKind.TEXT_START)
             elif part.get("type") == "function_call":
                 yield StreamEvent(
                     kind=StreamEventKind.TOOL_CALL_START,
@@ -585,7 +585,7 @@ class OpenAIAdapter(ProviderAdapter):
         elif etype == "response.reasoning_summary_text.delta":
             reasoning_text = data.get("delta", "")
             yield StreamEvent(
-                kind=StreamEventKind.THINKING_DELTA,
+                kind=StreamEventKind.REASONING_DELTA,
                 reasoning_delta=reasoning_text,
                 content_part=ContentPart(
                     kind=ContentKind.THINKING,

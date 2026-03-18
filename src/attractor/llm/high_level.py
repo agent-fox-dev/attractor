@@ -578,7 +578,7 @@ async def _stream_events(
         last_finish: FinishReason | None = None
 
         async for event in effective_client.stream(request):
-            if event.kind == StreamEventKind.CONTENT_DELTA:
+            if event.kind == StreamEventKind.TEXT_DELTA:
                 delta = (event.data or {}).get("text", "")
                 if delta:
                     text_parts.append(delta)
@@ -717,7 +717,7 @@ class StreamResult:
 
     async def __aiter__(self):
         async for event in self._events:
-            if event.kind == StreamEventKind.CONTENT_DELTA:
+            if event.kind == StreamEventKind.TEXT_DELTA:
                 delta = (event.data or {}).get("text", "")
                 if delta:
                     self._text_parts.append(delta)
@@ -738,7 +738,7 @@ class StreamResult:
 
     async def _text_stream_gen(self) -> AsyncIterator[str]:
         async for event in self._events:
-            if event.kind == StreamEventKind.CONTENT_DELTA:
+            if event.kind == StreamEventKind.TEXT_DELTA:
                 delta = (event.data or {}).get("text", "")
                 if delta:
                     self._text_parts.append(delta)
@@ -820,11 +820,11 @@ class StreamAccumulator:
 
     def add(self, event: StreamEvent) -> None:
         """Ingest a single stream event."""
-        if event.kind == StreamEventKind.CONTENT_DELTA:
+        if event.kind == StreamEventKind.TEXT_DELTA:
             delta = event.delta or (event.data or {}).get("text", "")
             if delta:
                 self._text_parts.append(delta)
-        elif event.kind == StreamEventKind.THINKING_DELTA:
+        elif event.kind == StreamEventKind.REASONING_DELTA:
             delta = event.reasoning_delta or ""
             if delta:
                 self._reasoning_parts.append(delta)
@@ -940,7 +940,7 @@ class StreamObjectResult:
 
     async def __aiter__(self):
         async for event in self._events:
-            if event.kind == StreamEventKind.CONTENT_DELTA:
+            if event.kind == StreamEventKind.TEXT_DELTA:
                 delta = (event.data or {}).get("text", "")
                 if delta:
                     self._text_parts.append(delta)

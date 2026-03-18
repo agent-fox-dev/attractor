@@ -841,12 +841,12 @@ class Session:
 
             try:
                 async for event in self.llm_client.stream(request):
-                    if event.kind == StreamEventKind.CONTENT_DELTA:
+                    if event.kind == StreamEventKind.TEXT_DELTA:
                         delta = (event.data or {}).get("text", "")
                         if delta:
                             text_parts.append(delta)
                             self._emit(EventKind.ASSISTANT_TEXT_DELTA, delta=delta)
-                    elif event.kind == StreamEventKind.THINKING_DELTA:
+                    elif event.kind == StreamEventKind.REASONING_DELTA:
                         delta = (event.data or {}).get("text", "")
                         if delta:
                             reasoning_text = (reasoning_text or "") + delta

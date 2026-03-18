@@ -590,14 +590,14 @@ class AnthropicAdapter(ProviderAdapter):
             block = data.get("content_block", {})
             btype = block.get("type", "")
             if btype == "text":
-                yield StreamEvent(kind=StreamEventKind.CONTENT_START)
+                yield StreamEvent(kind=StreamEventKind.TEXT_START)
             elif btype == "tool_use":
                 yield StreamEvent(
                     kind=StreamEventKind.TOOL_CALL_START,
                     data={"id": block.get("id", ""), "name": block.get("name", "")},
                 )
             elif btype == "thinking":
-                yield StreamEvent(kind=StreamEventKind.THINKING_START)
+                yield StreamEvent(kind=StreamEventKind.REASONING_START)
 
         elif etype == "content_block_delta":
             delta = data.get("delta", {})
@@ -605,7 +605,7 @@ class AnthropicAdapter(ProviderAdapter):
             if dtype == "text_delta":
                 text = delta.get("text", "")
                 yield StreamEvent(
-                    kind=StreamEventKind.CONTENT_DELTA,
+                    kind=StreamEventKind.TEXT_DELTA,
                     data={"text": text},
                     delta=text,
                     content_part=ContentPart(kind=ContentKind.TEXT, text=text),
@@ -615,10 +615,10 @@ class AnthropicAdapter(ProviderAdapter):
                     kind=StreamEventKind.TOOL_CALL_DELTA,
                     data={"partial_json": delta.get("partial_json", "")},
                 )
-            elif dtype == "thinking_delta":
+            elif dtype == "reasoning_delta":
                 thinking_text = delta.get("thinking", "")
                 yield StreamEvent(
-                    kind=StreamEventKind.THINKING_DELTA,
+                    kind=StreamEventKind.REASONING_DELTA,
                     reasoning_delta=thinking_text,
                     content_part=ContentPart(
                         kind=ContentKind.THINKING,
@@ -627,14 +627,14 @@ class AnthropicAdapter(ProviderAdapter):
                 )
             elif dtype == "signature_delta":
                 yield StreamEvent(
-                    kind=StreamEventKind.THINKING_DELTA,
+                    kind=StreamEventKind.REASONING_DELTA,
                     data={"signature": delta.get("signature", "")},
                 )
 
         elif etype == "content_block_stop":
             # We infer the end kind from the index but for simplicity emit
-            # a generic CONTENT_END.  Callers track which block is active.
-            yield StreamEvent(kind=StreamEventKind.CONTENT_END)
+            # a generic TEXT_END.  Callers track which block is active.
+            yield StreamEvent(kind=StreamEventKind.TEXT_END)
 
         elif etype == "message_delta":
             delta = data.get("delta", {})

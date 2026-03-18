@@ -402,15 +402,20 @@ def _parse_node_or_edge(state: _ParserState) -> None:
             state.edges.append((src, dst, dict(merged_attrs)))
 
 
-def _derive_subgraph_class(name: str) -> str:
-    """Derive a CSS class from a subgraph name.
+def _derive_subgraph_class(text: str, *, is_label: bool = False) -> str:
+    """Derive a CSS class from a subgraph label or name.
 
-    ``cluster_planning`` -> ``planning``, ``cluster_code_review`` -> ``code_review``.
-    Plain names (without ``cluster_`` prefix) are used as-is.
+    For labels (``is_label=True``): lowercase, replace spaces/underscores
+    with hyphens, strip non-alphanumeric except hyphens.
+    ``"Loop A"`` -> ``loop-a``.
+
+    For names: strip ``cluster_`` prefix first, then apply the same
+    transformation.  ``cluster_planning`` -> ``planning``.
     """
-    if name.startswith("cluster_"):
-        return name[8:]
-    return name
+    import re
+    if not is_label and text.startswith("cluster_"):
+        text = text[8:]
+    return re.sub(r'[^a-z0-9-]', '', text.lower().replace(' ', '-').replace('_', '-'))
 
 
 def _parse_subgraph(state: _ParserState) -> None:
@@ -431,14 +436,35 @@ def _parse_subgraph(state: _ParserState) -> None:
     saved_node_defaults = dict(state.node_defaults)
     saved_edge_defaults = dict(state.edge_defaults)
     saved_subgraph_class = state.subgraph_class
+    saved_graph_attrs = dict(state.graph_attrs)
 
     if subgraph_name:
         state.subgraph_class = _derive_subgraph_class(subgraph_name)
+
+    # Track which nodes are created inside this subgraph.
+    nodes_before = set(state.nodes.keys())
 
     while not state.at(TokenType.RBRACE) and not state.at(TokenType.EOF):
         _parse_statement(state)
 
     state.expect(TokenType.RBRACE)
+
+    # If the subgraph body defined a label, re-derive the class from label
+    # (spec Section 2.10: prefer label over name for class derivation).
+    subgraph_label = state.graph_attrs.get("label")
+    if subgraph_label and subgraph_name:
+        label_class = _derive_subgraph_class(subgraph_label, is_label=True)
+        if label_class != state.subgraph_class:
+            # Update nodes created in this subgraph that inherited the old class.
+            new_nodes = set(state.nodes.keys()) - nodes_before
+            for nid in new_nodes:
+                attrs = state.nodes[nid]
+                if attrs.get("class") == state.subgraph_class:
+                    attrs["class"] = label_class
+            state.subgraph_class = label_class
+
+    # Restore subgraph-scoped graph_attrs so they don't leak out.
+    state.graph_attrs = saved_graph_attrs
 
     # Restore defaults.
     state.node_defaults = saved_node_defaults

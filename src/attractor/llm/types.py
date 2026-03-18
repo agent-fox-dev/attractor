@@ -55,15 +55,15 @@ class FinishReason(StrEnum):
 class StreamEventKind(StrEnum):
     """Discriminator for stream events."""
 
-    CONTENT_START = "content_start"
-    CONTENT_DELTA = "content_delta"
-    CONTENT_END = "content_end"
+    TEXT_START = "text_start"
+    TEXT_DELTA = "text_delta"
+    TEXT_END = "text_end"
     TOOL_CALL_START = "tool_call_start"
     TOOL_CALL_DELTA = "tool_call_delta"
     TOOL_CALL_END = "tool_call_end"
-    THINKING_START = "thinking_start"
-    THINKING_DELTA = "thinking_delta"
-    THINKING_END = "thinking_end"
+    REASONING_START = "reasoning_start"
+    REASONING_DELTA = "reasoning_delta"
+    REASONING_END = "reasoning_end"
     STREAM_START = "stream_start"
     STEP_FINISH = "step_finish"
     FINISH = "finish"
@@ -438,6 +438,7 @@ class StreamEvent(BaseModel):
     usage: Usage | None = None
     finish_reason: FinishReason | None = None
     delta: str | None = None
+    text_id: str | None = None
     reasoning_delta: str | None = None
     error: str | None = None
     raw: dict[str, Any] | None = None

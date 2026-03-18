@@ -257,7 +257,7 @@ class OpenAICompatibleAdapter(ProviderAdapter):
                     content = delta.get("content", "")
                     if content:
                         yield StreamEvent(
-                            kind=StreamEventKind.CONTENT_DELTA,
+                            kind=StreamEventKind.TEXT_DELTA,
                             data={"text": content},
                         )
 
@@ -266,7 +266,7 @@ class OpenAICompatibleAdapter(ProviderAdapter):
                         fr_map = {"stop": FinishReason.STOP, "tool_calls": FinishReason.TOOL_CALLS,
                                   "length": FinishReason.LENGTH}
                         yield StreamEvent(
-                            kind=StreamEventKind.CONTENT_END,
+                            kind=StreamEventKind.TEXT_END,
                             finish_reason=fr_map.get(finish_reason, FinishReason.STOP),
                         )
 

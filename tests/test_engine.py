@@ -593,6 +593,55 @@ def test_parallel_handler_emits_events():
     assert len(branch_completed) == 2
 
 
+def test_parallel_ignore_policy_filters_failed_results():
+    """error_policy=ignore excludes failed branches from parallel.results."""
+    from attractor.pipeline.handlers.parallel import ParallelHandler
+    from attractor.pipeline.handlers.base import Handler
+    from attractor.pipeline.handlers import _get_default_registry
+    from attractor.pipeline.context import Context
+    from attractor.pipeline.events import EventEmitter
+
+    class FailingHandler(Handler):
+        def execute(self, node, context, graph, logs_root=None, emitter=None):
+            if node.id == "b":
+                return Outcome(status=StageStatus.FAIL, failure_reason="branch b failed")
+            return Outcome(status=StageStatus.SUCCESS, notes="ok")
+
+    graph = parse_dot("""
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        par [shape=component, error_policy="ignore"]
+        a [shape=box, prompt="A"]
+        b [shape=box, prompt="B"]
+        start -> par
+        par -> a
+        par -> b
+        a -> exit
+        b -> exit
+    }
+    """)
+
+    # Patch the registry resolution to use our handler for branches
+    import attractor.pipeline.handlers as handlers_pkg
+    from unittest.mock import patch
+
+    class MockRegistry:
+        def resolve(self, node):
+            return FailingHandler()
+
+    with patch.object(handlers_pkg, '_get_default_registry', return_value=MockRegistry()):
+        handler = ParallelHandler()
+        ctx = Context()
+        emitter = EventEmitter(on_event=lambda e: None)
+        outcome = handler.execute(graph.nodes["par"], ctx, graph, emitter=emitter)
+        assert outcome.status == StageStatus.SUCCESS
+        results = ctx.get("parallel.results")
+        # Failed branch "b" should be excluded from results
+        assert "b" not in results
+        assert "a" in results
+
+
 def test_human_handler_emits_interview_events():
     """WaitForHumanHandler emits INTERVIEW_STARTED and INTERVIEW_COMPLETED."""
     from attractor.pipeline.handlers.human import WaitForHumanHandler

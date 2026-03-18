@@ -531,10 +531,10 @@ class GeminiAdapter(ProviderAdapter):
         for part in parts:
             if "text" in part and not part.get("thought"):
                 if not started:
-                    yield StreamEvent(kind=StreamEventKind.CONTENT_START)
+                    yield StreamEvent(kind=StreamEventKind.TEXT_START)
                 text = part["text"]
                 yield StreamEvent(
-                    kind=StreamEventKind.CONTENT_DELTA,
+                    kind=StreamEventKind.TEXT_DELTA,
                     data={"text": text},
                     delta=text,
                     content_part=ContentPart(kind=ContentKind.TEXT, text=text),
@@ -543,7 +543,7 @@ class GeminiAdapter(ProviderAdapter):
             elif "text" in part and part.get("thought"):
                 thinking_text = part["text"]
                 yield StreamEvent(
-                    kind=StreamEventKind.THINKING_DELTA,
+                    kind=StreamEventKind.REASONING_DELTA,
                     reasoning_delta=thinking_text,
                     content_part=ContentPart(
                         kind=ContentKind.THINKING,
@@ -587,7 +587,7 @@ class GeminiAdapter(ProviderAdapter):
             ]
             finish = self._map_finish_reason(finish_str, content_parts)
             yield StreamEvent(
-                kind=StreamEventKind.CONTENT_END,
+                kind=StreamEventKind.TEXT_END,
                 finish_reason=finish,
             )
 

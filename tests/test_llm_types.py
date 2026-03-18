@@ -432,7 +432,7 @@ def test_response_message_property():
 def test_stream_event_delta_fields():
     from attractor.llm.types import StreamEventKind
     evt = StreamEvent(
-        kind=StreamEventKind.CONTENT_DELTA,
+        kind=StreamEventKind.TEXT_DELTA,
         delta="hello",
         reasoning_delta=None,
     )
@@ -440,10 +440,39 @@ def test_stream_event_delta_fields():
     assert evt.reasoning_delta is None
 
     evt2 = StreamEvent(
-        kind=StreamEventKind.THINKING_DELTA,
+        kind=StreamEventKind.REASONING_DELTA,
         reasoning_delta="step 1",
     )
     assert evt2.reasoning_delta == "step 1"
+
+
+def test_stream_event_text_id():
+    """StreamEvent has a text_id field for correlating text segments."""
+    from attractor.llm.types import StreamEventKind
+    evt = StreamEvent(
+        kind=StreamEventKind.TEXT_DELTA,
+        delta="hello",
+        text_id="seg-0",
+    )
+    assert evt.text_id == "seg-0"
+
+    # text_id defaults to None
+    evt2 = StreamEvent(kind=StreamEventKind.TEXT_DELTA, delta="world")
+    assert evt2.text_id is None
+
+
+def test_stream_event_spec_kind_names():
+    """StreamEventKind uses spec names: TEXT_*, REASONING_* (not CONTENT_*/THINKING_*)."""
+    from attractor.llm.types import StreamEventKind
+    assert StreamEventKind.TEXT_START == "text_start"
+    assert StreamEventKind.TEXT_DELTA == "text_delta"
+    assert StreamEventKind.TEXT_END == "text_end"
+    assert StreamEventKind.REASONING_START == "reasoning_start"
+    assert StreamEventKind.REASONING_DELTA == "reasoning_delta"
+    assert StreamEventKind.REASONING_END == "reasoning_end"
+    # Old names should not exist
+    assert not hasattr(StreamEventKind, "CONTENT_START")
+    assert not hasattr(StreamEventKind, "THINKING_START")
 
 
 def test_stream_event_error_field():
@@ -518,9 +547,9 @@ def test_stream_accumulator():
     from attractor.llm.types import ThinkingData
 
     acc = StreamAccumulator()
-    acc.add(StreamEvent(kind=StreamEventKind.THINKING_DELTA, reasoning_delta="step 1"))
-    acc.add(StreamEvent(kind=StreamEventKind.CONTENT_DELTA, delta="hello"))
-    acc.add(StreamEvent(kind=StreamEventKind.CONTENT_DELTA, delta=" world"))
+    acc.add(StreamEvent(kind=StreamEventKind.REASONING_DELTA, reasoning_delta="step 1"))
+    acc.add(StreamEvent(kind=StreamEventKind.TEXT_DELTA, delta="hello"))
+    acc.add(StreamEvent(kind=StreamEventKind.TEXT_DELTA, delta=" world"))
     acc.add(StreamEvent(
         kind=StreamEventKind.TOOL_CALL_END,
         content_part=ContentPart(
@@ -569,7 +598,7 @@ def test_stream_accumulator_process_alias():
     from attractor.llm.high_level import StreamAccumulator
 
     acc = StreamAccumulator()
-    acc.process(StreamEvent(kind=StreamEventKind.CONTENT_DELTA, delta="hi"))
+    acc.process(StreamEvent(kind=StreamEventKind.TEXT_DELTA, delta="hi"))
     assert acc.text == "hi"
 
 
@@ -869,7 +898,7 @@ def test_openai_compatible_provider_and_raw():
 
 
 def test_openai_compatible_streaming_usage_event_kind():
-    """OpenAI-compatible adapter emits USAGE kind for usage chunks, not CONTENT_END."""
+    """OpenAI-compatible adapter emits USAGE kind for usage chunks, not TEXT_END."""
     from attractor.llm.types import StreamEventKind
     # Verify the source code uses USAGE kind
     import inspect

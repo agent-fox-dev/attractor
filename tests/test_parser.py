@@ -184,6 +184,27 @@ def test_subgraph_class_derivation():
     assert g.nodes["explicit"].css_class == "custom"
 
 
+def test_subgraph_class_from_label():
+    """Spec Section 2.10: class derivation prefers label over name."""
+    dot = """
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        subgraph cluster_x {
+            label="Loop A"
+            node [shape=box]
+            step1 [prompt="S1"]
+            step2 [prompt="S2"]
+        }
+        start -> step1 -> step2 -> exit
+    }
+    """
+    g = parse_dot(dot)
+    # label="Loop A" -> class "loop-a" (not "x" from the name)
+    assert g.nodes["step1"].css_class == "loop-a"
+    assert g.nodes["step2"].css_class == "loop-a"
+
+
 def test_subgraph_class_with_stylesheet():
     from attractor.pipeline.stylesheet import apply_stylesheet, parse_stylesheet
     from attractor.pipeline.graph import Graph, Node, Edge
