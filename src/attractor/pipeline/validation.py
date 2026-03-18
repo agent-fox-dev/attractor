@@ -128,7 +128,7 @@ class ReachabilityRule(LintRule):
         diags: list[Diagnostic] = []
         for nid in sorted(unreachable):
             diags.append(Diagnostic(
-                rule="reachability", severity=Severity.WARNING,
+                rule="reachability", severity=Severity.ERROR,
                 message=f"Node '{nid}' is not reachable from the start node.",
                 node_id=nid,
                 fix=f"Add an edge leading to '{nid}' or remove it.",
@@ -218,7 +218,7 @@ class ConditionSyntaxRule(LintRule):
                     ))
                 elif not self._CLAUSE_PATTERN.match(clause):
                     diags.append(Diagnostic(
-                        rule="condition_syntax", severity=Severity.WARNING,
+                        rule="condition_syntax", severity=Severity.ERROR,
                         message=f"Clause '{clause}' may have invalid syntax.",
                         edge=f"{edge.from_node} -> {edge.to_node}",
                     ))

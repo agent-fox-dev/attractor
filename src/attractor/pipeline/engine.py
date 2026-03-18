@@ -369,6 +369,7 @@ def run(
         node = current_node
 
         emitter.emit(PipelineEventKind.NODE_ENTER, node_id=node.id, step=step)
+        context.set("current_node", node.id)
         context.append_log(f"[step {step}] Entering node '{node.id}'")
 
         # Apply fidelity degradation on first resumed node

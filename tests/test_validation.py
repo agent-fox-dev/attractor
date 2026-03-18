@@ -60,8 +60,8 @@ def test_unreachable_node_warning():
     """
     g = parse_dot(dot)
     diags = validate(g)
-    warnings = [d for d in diags if d.severity == Severity.WARNING]
-    assert any("orphan" in d.message for d in warnings)
+    errors = [d for d in diags if d.severity == Severity.ERROR]
+    assert any("orphan" in d.message for d in errors)
 
 
 def test_condition_syntax_valid():

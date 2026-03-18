@@ -437,6 +437,7 @@ class StreamEvent(BaseModel):
     content_part: ContentPart | None = None
     usage: Usage | None = None
     finish_reason: FinishReason | None = None
+    response: Response | None = None
     delta: str | None = None
     text_id: str | None = None
     reasoning_delta: str | None = None
@@ -519,10 +520,11 @@ class RetryPolicy(BaseModel):
     """Retry configuration for high-level API calls."""
 
     max_retries: int = 2
-    initial_delay: float = 1.0
+    base_delay: float = 1.0
     max_delay: float = 60.0
-    multiplier: float = 2.0
+    backoff_multiplier: float = 2.0
     jitter: bool = True
+    on_retry: Any = None  # Callback(error, attempt, delay) called before each retry
 
 
 class ToolChoice(BaseModel):

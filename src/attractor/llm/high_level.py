@@ -183,7 +183,7 @@ async def _retry_call(
     policy: RetryPolicy,
 ) -> Any:
     """Execute *fn* with retry logic per the RetryPolicy."""
-    delay = policy.initial_delay
+    delay = policy.base_delay
     last_error: Exception | None = None
 
     for attempt in range(policy.max_retries + 1):
@@ -200,12 +200,16 @@ async def _retry_call(
                 wait *= 0.5 + random.random()
             wait = min(wait, policy.max_delay)
 
+            # Invoke on_retry callback if provided (spec Section 6.6)
+            if policy.on_retry is not None:
+                policy.on_retry(exc, attempt + 1, wait)
+
             logger.info(
                 "Retry %d/%d after %.1fs: %s",
                 attempt + 1, policy.max_retries, wait, exc,
             )
             await asyncio.sleep(wait)
-            delay = min(delay * policy.multiplier, policy.max_delay)
+            delay = min(delay * policy.backoff_multiplier, policy.max_delay)
 
     raise last_error  # type: ignore[misc]
 
@@ -593,10 +597,25 @@ async def _stream_events(
 
         # If no tool calls or no executor, we're done
         if not tool_calls or tool_executor is None or _round >= max_tool_rounds:
+            # Build accumulated response for FINISH event (spec Section 3.13)
+            finish_parts: list[ContentPart] = []
+            full_text = "".join(text_parts)
+            if full_text:
+                finish_parts.append(ContentPart(kind=ContentKind.TEXT, text=full_text))
+            for tc in tool_calls:
+                finish_parts.append(ContentPart(kind=ContentKind.TOOL_CALL, tool_call=tc))
+            finish_response = Response(
+                id="",
+                model=model,
+                content=finish_parts,
+                usage=last_usage or Usage(),
+                finish_reason=last_finish or FinishReason.STOP,
+            )
             yield StreamEvent(
                 kind=StreamEventKind.FINISH,
                 usage=last_usage,
                 finish_reason=last_finish or FinishReason.STOP,
+                response=finish_response,
             )
             break
 

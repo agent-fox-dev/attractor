@@ -145,8 +145,10 @@ def test_invalid_request_error():
 def test_retry_policy_defaults():
     policy = RetryPolicy()
     assert policy.max_retries == 2
-    assert policy.initial_delay == 1.0
+    assert policy.base_delay == 1.0
+    assert policy.backoff_multiplier == 2.0
     assert policy.jitter is True
+    assert policy.on_retry is None
 
 
 def test_response_format():
@@ -986,3 +988,41 @@ def test_generate_result_usage_property():
     )
     assert result.usage.input_tokens == 50  # final step usage
     assert result.total_usage.input_tokens == 100  # aggregated usage
+
+
+def test_stream_event_response_field():
+    """StreamEvent has a response field for FINISH events (spec Section 3.13)."""
+    from attractor.llm.types import StreamEventKind, Response, FinishReason
+
+    response = Response(content=[], usage=Usage(input_tokens=10, output_tokens=5))
+    evt = StreamEvent(
+        kind=StreamEventKind.FINISH,
+        response=response,
+        finish_reason=FinishReason.STOP,
+    )
+    assert evt.response is not None
+    assert evt.response.usage.input_tokens == 10
+
+    # Default is None
+    evt2 = StreamEvent(kind=StreamEventKind.TEXT_DELTA, delta="hi")
+    assert evt2.response is None
+
+
+def test_retry_policy_on_retry_callback():
+    """RetryPolicy has on_retry callback field (spec Section 6.6)."""
+    calls = []
+    def on_retry(error, attempt, delay):
+        calls.append((error, attempt, delay))
+
+    policy = RetryPolicy(on_retry=on_retry)
+    assert policy.on_retry is not None
+    policy.on_retry("err", 1, 1.5)
+    assert len(calls) == 1
+    assert calls[0] == ("err", 1, 1.5)
+
+
+def test_retry_policy_spec_field_names():
+    """RetryPolicy uses spec field names: base_delay, backoff_multiplier."""
+    policy = RetryPolicy(base_delay=2.0, backoff_multiplier=3.0)
+    assert policy.base_delay == 2.0
+    assert policy.backoff_multiplier == 3.0
