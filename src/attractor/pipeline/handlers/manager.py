@@ -84,12 +84,19 @@ class ManagerLoopHandler(Handler):
 
         if child_dotfile and child_autostart:
             child_workdir = node.attrs.get("stack.child_workdir", "") or "."
+            # Inject parent context into child via environment variables
+            child_env = dict(__import__("os").environ)
+            for key, value in context.snapshot()["values"].items():
+                child_env[f"ATTRACTOR_PARENT_{key.upper().replace('.', '_')}"] = str(value)
+            child_env["ATTRACTOR_PARENT_GOAL"] = graph.goal or ""
+            child_env["ATTRACTOR_PARENT_NODE"] = node.id
             try:
                 child_proc = subprocess.Popen(
                     ["attractor", "run", child_dotfile],
                     cwd=child_workdir,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
+                    env=child_env,
                 )
                 context.set("context.stack.child.status", "running")
                 context.set("context.stack.child.pid", str(child_proc.pid))
@@ -108,17 +115,24 @@ class ManagerLoopHandler(Handler):
                     child_outcome = "success" if retcode == 0 else "fail"
                     context.set("context.stack.child.status", child_status)
                     context.set("context.stack.child.outcome", child_outcome)
+                    # Merge child stdout/stderr back into parent context
+                    child_stdout = child_proc.stdout.read().decode("utf-8", errors="replace") if child_proc.stdout else ""
+                    child_stderr = child_proc.stderr.read().decode("utf-8", errors="replace") if child_proc.stderr else ""
+                    if child_stdout:
+                        context.set("context.stack.child.stdout", child_stdout[:10000])
+                    if child_stderr:
+                        context.set("context.stack.child.stderr", child_stderr[:5000])
                     if retcode == 0:
                         return Outcome(
                             status=StageStatus.SUCCESS,
                             notes=f"Child pipeline completed at cycle {cycle + 1}.",
-                            context_updates={"manager_cycles": cycle + 1},
+                            context_updates={"manager_cycles": cycle + 1, "child_outcome": child_outcome},
                         )
                     else:
                         return Outcome(
                             status=StageStatus.FAIL,
                             failure_reason=f"Child pipeline failed (exit {retcode}).",
-                            context_updates={"manager_cycles": cycle + 1},
+                            context_updates={"manager_cycles": cycle + 1, "child_outcome": child_outcome},
                         )
 
             # Check context-based child status

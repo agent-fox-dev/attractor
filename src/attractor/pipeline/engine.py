@@ -525,6 +525,12 @@ def run(
             )
             break
 
+        # Apply fidelity resolution precedence: edge > node > graph default
+        if edge.fidelity:
+            next_node.attrs["fidelity"] = edge.fidelity
+        elif not next_node.fidelity and graph.default_fidelity:
+            next_node.attrs["fidelity"] = graph.default_fidelity
+
         # Handle loop_restart edges: restart execution from the target node
         if edge.loop_restart:
             emitter.emit(

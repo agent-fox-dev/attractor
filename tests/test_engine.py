@@ -212,6 +212,45 @@ def test_preamble_transform_skips_full_fidelity():
     assert "[Context fidelity" not in graph.nodes["a"].prompt
 
 
+def test_fidelity_resolution_edge_overrides_node():
+    """Edge fidelity attribute overrides node fidelity."""
+    graph = parse_dot("""
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        a [shape=box, prompt="Work A"]
+        b [shape=box, prompt="Work B", fidelity="compact"]
+        start -> a -> b [fidelity="summary:low"]
+        b -> exit
+    }
+    """)
+    # After running, b should have edge fidelity applied
+    from attractor.pipeline.engine import select_edge, PipelineRunner
+    from attractor.pipeline.context import Context
+    context = Context()
+    outcome = Outcome(status=StageStatus.SUCCESS)
+    edge = select_edge(graph.nodes["a"], outcome, context, graph)
+    assert edge is not None
+    assert edge.to_node == "b"
+    assert edge.fidelity == "summary:low"
+
+
+def test_fidelity_resolution_graph_default():
+    """Graph default_fidelity applies to nodes without explicit fidelity."""
+    graph = parse_dot("""
+    digraph T {
+        graph [default_fidelity="summary:medium"]
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        a [shape=box, prompt="Work"]
+        start -> a -> exit
+    }
+    """)
+    assert graph.default_fidelity == "summary:medium"
+    # Node a has no explicit fidelity
+    assert graph.nodes["a"].fidelity == ""
+
+
 def test_loop_restart_edge():
     dot = """
     digraph T {
