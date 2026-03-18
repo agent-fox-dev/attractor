@@ -587,3 +587,23 @@ def test_stream_accepts_timeout_param():
     assert "system" in sig.parameters
     assert "timeout" in sig.parameters
     assert sig.parameters["max_tool_rounds"].default == 1
+
+
+def test_stream_returns_stream_result():
+    """stream() return annotation is StreamResult, not AsyncIterator."""
+    import inspect
+    from attractor.llm.high_level import stream
+
+    sig = inspect.signature(stream)
+    ret = sig.return_annotation
+    # With `from __future__ import annotations`, annotations are strings
+    assert "StreamResult" in str(ret)
+
+
+def test_generate_accepts_repair_tool_call():
+    """generate() signature includes repair_tool_call parameter."""
+    import inspect
+    from attractor.llm.high_level import generate
+
+    sig = inspect.signature(generate)
+    assert "repair_tool_call" in sig.parameters

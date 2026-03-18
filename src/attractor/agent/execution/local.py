@@ -96,6 +96,10 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
 
     # -- file operations ---------------------------------------------------
 
+    _IMAGE_EXTENSIONS = frozenset({
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".tiff", ".tif",
+    })
+
     def read_file(
         self, path: str, offset: int | None = None, limit: int | None = None
     ) -> str:
@@ -104,6 +108,19 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
             raise FileNotFoundError(f"File not found: {path}")
         if not resolved.is_file():
             raise IsADirectoryError(f"Not a file: {path}")
+
+        # Image files: return base64-encoded data with media type
+        if resolved.suffix.lower() in self._IMAGE_EXTENSIONS:
+            import base64
+            data = resolved.read_bytes()
+            ext = resolved.suffix.lower()
+            media_type = {
+                ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
+                ".ico": "image/x-icon", ".tiff": "image/tiff", ".tif": "image/tiff",
+            }.get(ext, "application/octet-stream")
+            b64 = base64.b64encode(data).decode("ascii")
+            return f"[image: {resolved.name} ({media_type}, {len(data)} bytes)]\ndata:{media_type};base64,{b64}"
 
         text = resolved.read_text(encoding="utf-8", errors="replace")
         lines = text.splitlines(keepends=True)

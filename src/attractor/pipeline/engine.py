@@ -241,10 +241,7 @@ def execute_with_retry(
 
         last_outcome = outcome
 
-        # auto_status: if handler wrote no explicit status, synthesize SUCCESS
-        if node.auto_status and outcome.status == StageStatus.FAIL and not outcome.failure_reason:
-            outcome = Outcome(status=StageStatus.SUCCESS, notes="auto_status: synthesized success")
-            last_outcome = outcome
+        last_outcome = outcome
 
         if outcome.status in (StageStatus.SUCCESS, StageStatus.PARTIAL_SUCCESS, StageStatus.SKIPPED):
             return outcome
@@ -393,6 +390,18 @@ def run(
             node, context, graph, handler, policy,
             emitter=emitter, logs_root=config.logs_root,
         )
+
+        # auto_status: if handler wrote no status.json and auto_status is set,
+        # synthesize a SUCCESS outcome (spec Section 2.6, Appendix C)
+        if node.auto_status and outcome.status != StageStatus.SUCCESS:
+            handler_wrote_status = False
+            if config.logs_root:
+                handler_wrote_status = (Path(config.logs_root) / node.id / "status.json").exists()
+            if not handler_wrote_status:
+                outcome = Outcome(
+                    status=StageStatus.SUCCESS,
+                    notes="auto-status: handler completed without writing status",
+                )
 
         # Write status.json for this node if logs_root is set and handler didn't
         if config.logs_root:

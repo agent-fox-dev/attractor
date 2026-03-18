@@ -195,6 +195,7 @@ async def _retry_call(
 
 
 ToolExecutor = Callable[[ToolCallData], ToolResultData | str]
+RepairToolCall = Callable[[ToolCallData, str], ToolCallData | None]
 
 
 async def generate(
@@ -216,6 +217,7 @@ async def generate(
     max_tool_rounds: int = 1,
     tool_executor: ToolExecutor | None = None,
     stop_when: StopCondition | None = None,
+    repair_tool_call: RepairToolCall | None = None,
     retry_policy: RetryPolicy | None = None,
     max_retries: int | None = None,
     timeout: float | TimeoutConfig | None = None,
@@ -226,6 +228,10 @@ async def generate(
     When *max_tool_rounds* > 0 and a *tool_executor* is provided, the
     function will automatically execute tool calls and feed results back
     to the model, looping up to *max_tool_rounds* times.
+
+    If *repair_tool_call* is provided and a tool call's arguments fail
+    validation, the callback is invoked with the tool call and error
+    message.  It may return a repaired ToolCallData or None to skip.
 
     Returns a :class:`GenerateResult` with the final response and all
     intermediate steps.
@@ -281,6 +287,20 @@ async def generate(
             steps.append(step)
             break
 
+        # Apply repair_tool_call if provided
+        final_tool_calls = list(response.tool_calls)
+        if repair_tool_call is not None:
+            repaired: list[ToolCallData] = []
+            for tc in final_tool_calls:
+                # Simple type validation on arguments
+                if not isinstance(tc.arguments, dict):
+                    repaired_tc = repair_tool_call(tc, "arguments is not a dict")
+                    if repaired_tc is not None:
+                        repaired.append(repaired_tc)
+                else:
+                    repaired.append(tc)
+            final_tool_calls = repaired
+
         # Execute tools concurrently
         async def _exec_tool(tc: ToolCallData) -> ToolResultData:
             try:
@@ -289,19 +309,34 @@ async def generate(
                     return ToolResultData(tool_call_id=tc.id, content=result)
                 return result
             except Exception as exc:
+                # If repair callback available, try repair on execution error
+                if repair_tool_call is not None:
+                    repaired_tc = repair_tool_call(tc, str(exc))
+                    if repaired_tc is not None:
+                        try:
+                            result = tool_executor(repaired_tc)
+                            if isinstance(result, str):
+                                return ToolResultData(tool_call_id=repaired_tc.id, content=result)
+                            return result
+                        except Exception as exc2:
+                            return ToolResultData(
+                                tool_call_id=tc.id,
+                                content=f"Tool error after repair: {exc2}",
+                                is_error=True,
+                            )
                 return ToolResultData(
                     tool_call_id=tc.id,
                     content=f"Tool error: {exc}",
                     is_error=True,
                 )
 
-        if len(response.tool_calls) > 1:
+        if len(final_tool_calls) > 1:
             import asyncio
             tool_results = list(await asyncio.gather(
-                *[_exec_tool(tc) for tc in response.tool_calls]
+                *[_exec_tool(tc) for tc in final_tool_calls]
             ))
         else:
-            tool_results = [await _exec_tool(tc) for tc in response.tool_calls]
+            tool_results = [await _exec_tool(tc) for tc in final_tool_calls]
 
         step.tool_results = tool_results
         steps.append(step)
@@ -470,12 +505,11 @@ async def _generate_object_via_tool(
 # ---------------------------------------------------------------------------
 
 
-async def stream(
+async def _stream_events(
     model: str,
-    prompt_or_messages: str | list[Message],
+    messages: list[Message],
     *,
-    system: str | None = None,
-    tools: list[ToolDefinition | dict[str, Any]] | None = None,
+    tools: list[ToolDefinition] | None = None,
     tool_choice: str | None = None,
     max_tokens: int | None = None,
     temperature: float | None = None,
@@ -488,26 +522,16 @@ async def stream(
     client: Client | None = None,
     max_tool_rounds: int = 1,
     tool_executor: ToolExecutor | None = None,
-    timeout: float | TimeoutConfig | None = None,
     abort_signal: AbortSignal | None = None,
 ) -> AsyncIterator[StreamEvent]:
-    """Stream LLM response events.
-
-    When *max_tool_rounds* > 0 and a *tool_executor* is provided, the
-    stream pauses on tool calls, executes them, emits a STEP_FINISH event,
-    then resumes streaming the model's next response.
-    """
+    """Internal async generator that yields StreamEvent items with tool loop."""
     effective_client = client or _get_default_client()
-    messages = _coerce_messages(prompt_or_messages)
-    if system is not None:
-        messages = [Message.system(system)] + messages
-    coerced_tools = _coerce_tools(tools)
 
     for _round in range(max(max_tool_rounds, 0) + 1):
         request = Request(
             model=model,
             messages=messages,
-            tools=coerced_tools,
+            tools=tools,
             tool_choice=tool_choice,
             max_tokens=max_tokens,
             temperature=temperature,
@@ -575,6 +599,62 @@ async def stream(
                 content=tr.content,
                 is_error=tr.is_error,
             ))
+
+
+async def stream(
+    model: str,
+    prompt_or_messages: str | list[Message],
+    *,
+    system: str | None = None,
+    tools: list[ToolDefinition | dict[str, Any]] | None = None,
+    tool_choice: str | None = None,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
+    stop_sequences: list[str] | None = None,
+    response_format: ResponseFormat | dict[str, Any] | None = None,
+    reasoning_effort: str | None = None,
+    provider: str | None = None,
+    provider_options: dict[str, Any] | None = None,
+    client: Client | None = None,
+    max_tool_rounds: int = 1,
+    tool_executor: ToolExecutor | None = None,
+    timeout: float | TimeoutConfig | None = None,
+    abort_signal: AbortSignal | None = None,
+) -> StreamResult:
+    """Stream LLM response events, returning a StreamResult wrapper.
+
+    The StreamResult is async-iterable over StreamEvent items. After
+    iteration completes, call ``response()`` to get the assembled Response.
+
+    When *max_tool_rounds* > 0 and a *tool_executor* is provided, the
+    stream pauses on tool calls, executes them, emits a STEP_FINISH event,
+    then resumes streaming the model's next response.
+    """
+    messages = _coerce_messages(prompt_or_messages)
+    if system is not None:
+        messages = [Message.system(system)] + messages
+    coerced_tools = _coerce_tools(tools)
+
+    events = _stream_events(
+        model,
+        messages,
+        tools=coerced_tools,
+        tool_choice=tool_choice,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        stop_sequences=stop_sequences,
+        response_format=response_format,
+        reasoning_effort=reasoning_effort,
+        provider=provider,
+        provider_options=provider_options,
+        client=client,
+        max_tool_rounds=max_tool_rounds,
+        tool_executor=tool_executor,
+        abort_signal=abort_signal,
+    )
+    return StreamResult(events)
 
 
 # ---------------------------------------------------------------------------
@@ -778,10 +858,9 @@ async def stream_with_result(
 ) -> StreamResult:
     """Stream LLM response events, returning a StreamResult wrapper.
 
-    The StreamResult can be iterated for events, and after completion
-    provides the assembled response.
+    .. deprecated:: Use :func:`stream` directly — it now returns StreamResult.
     """
-    events = stream(
+    return await stream(
         model,
         prompt_or_messages,
         tools=tools,
@@ -794,7 +873,6 @@ async def stream_with_result(
         client=client,
         abort_signal=abort_signal,
     )
-    return StreamResult(events)
 
 
 # ---------------------------------------------------------------------------

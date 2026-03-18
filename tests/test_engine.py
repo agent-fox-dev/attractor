@@ -1,5 +1,6 @@
 """Tests for the pipeline execution engine."""
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -660,3 +661,25 @@ def test_codergen_label_fallback():
         prompt_file = Path(tmpdir) / "a" / "prompt.md"
         assert prompt_file.exists()
         assert "Do the work" in prompt_file.read_text()
+
+
+def test_auto_status_synthesizes_success():
+    """auto_status=true synthesizes SUCCESS when handler writes no status.json."""
+    dot = """
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        a [shape=box, auto_status="true", prompt="Do something"]
+        start -> a -> exit
+    }
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config = PipelineConfig(logs_root=tmpdir)
+        runner = PipelineRunner()
+        outcome = runner.run(dot, config=config)
+        assert outcome.status == StageStatus.SUCCESS
+        # status.json should exist with synthesized status
+        status_file = Path(tmpdir) / "a" / "status.json"
+        assert status_file.exists()
+        status = json.loads(status_file.read_text())
+        assert status["status"] == "success"

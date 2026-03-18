@@ -322,3 +322,28 @@ def test_git_branch_method():
     branch = env.git_branch()
     # In the test repo, we should get a branch name
     assert isinstance(branch, str)
+
+
+def test_read_file_image(tmp_path):
+    """read_file returns base64 data for image files."""
+    import base64
+
+    env = LocalExecutionEnvironment(working_dir=str(tmp_path))
+    # Create a tiny PNG
+    png_bytes = bytes([
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+        0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89,
+    ])
+    img_path = tmp_path / "test.png"
+    img_path.write_bytes(png_bytes)
+
+    result = env.read_file(str(img_path))
+    assert "[image: test.png" in result
+    assert "image/png" in result
+    assert "base64," in result
+    # Verify the base64 decodes back
+    b64_part = result.split("base64,")[1]
+    decoded = base64.b64decode(b64_part)
+    assert decoded == png_bytes
