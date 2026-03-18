@@ -61,6 +61,9 @@ def _map_status_to_error(status_code: int, body: str, provider: str) -> Provider
     if status_code == 404:
         from attractor.llm.types import NotFoundError
         return NotFoundError(msg, **kw)
+    if status_code == 408:
+        from attractor.llm.types import RequestTimeoutError
+        return RequestTimeoutError(msg, **kw)
     if status_code in (400, 422):
         return InvalidRequestError(msg, **kw)
     if status_code == 413:
@@ -77,6 +80,17 @@ def _map_status_to_error(status_code: int, body: str, provider: str) -> Provider
         return RateLimitError(msg, retry_after=retry_after, **kw)
     if status_code >= 500:
         return ServerError(msg, status_code=status_code, **kw)
+    # Body-based classification for ambiguous status codes (spec Section 6.5)
+    lower = body.lower()
+    if "not found" in lower or "does not exist" in lower:
+        from attractor.llm.types import NotFoundError
+        return NotFoundError(msg, **kw)
+    if "unauthorized" in lower or "invalid key" in lower:
+        return AuthenticationError(msg, **kw)
+    if "context length" in lower or "too many tokens" in lower:
+        return ContextLengthError(msg, **kw)
+    if "content filter" in lower or "safety" in lower:
+        return ContentFilterError(msg, **kw)
     return ProviderError(msg, status_code=status_code, **kw)
 
 

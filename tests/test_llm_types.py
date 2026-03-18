@@ -1026,3 +1026,127 @@ def test_retry_policy_spec_field_names():
     policy = RetryPolicy(base_delay=2.0, backoff_multiplier=3.0)
     assert policy.base_delay == 2.0
     assert policy.backoff_multiplier == 3.0
+
+
+def test_error_mapping_408_request_timeout():
+    """All adapters map HTTP 408 to RequestTimeoutError (spec Section 6.4)."""
+    from attractor.llm.types import RequestTimeoutError
+    from attractor.llm.adapters.anthropic import _map_status_to_error as anthropic_map
+    from attractor.llm.adapters.openai import _map_status_to_error as openai_map
+    from attractor.llm.adapters.gemini import _map_status_to_error as gemini_map
+    from attractor.llm.adapters.openai_compatible import _map_status_to_error as compat_map
+
+    for mapper, name in [
+        (anthropic_map, "anthropic"),
+        (openai_map, "openai"),
+        (gemini_map, "gemini"),
+        (compat_map, "compat"),
+    ]:
+        err = mapper(408, "timeout", name)
+        assert isinstance(err, RequestTimeoutError), f"{name} should map 408 to RequestTimeoutError"
+
+
+def test_error_mapping_all_status_codes():
+    """Verify full error mapping table (spec Section 6.4)."""
+    from attractor.llm.types import (
+        AuthenticationError, AccessDeniedError, NotFoundError,
+        InvalidRequestError, ContextLengthError, RateLimitError,
+        ServerError, RequestTimeoutError,
+    )
+    from attractor.llm.adapters.openai import _map_status_to_error
+
+    cases = [
+        (400, InvalidRequestError),
+        (401, AuthenticationError),
+        (403, AccessDeniedError),
+        (404, NotFoundError),
+        (408, RequestTimeoutError),
+        (413, ContextLengthError),
+        (422, InvalidRequestError),
+        (429, RateLimitError),
+        (500, ServerError),
+        (502, ServerError),
+        (503, ServerError),
+    ]
+    for code, expected_cls in cases:
+        err = _map_status_to_error(code, "body", "test")
+        assert isinstance(err, expected_cls), f"HTTP {code} should map to {expected_cls.__name__}, got {type(err).__name__}"
+
+
+def test_gemini_grpc_deadline_exceeded():
+    """Gemini adapter maps DEADLINE_EXCEEDED gRPC status to RequestTimeoutError."""
+    import json
+    from attractor.llm.types import RequestTimeoutError
+    from attractor.llm.adapters.gemini import _map_status_to_error
+
+    body = json.dumps({"error": {"status": "DEADLINE_EXCEEDED", "message": "timed out"}})
+    err = _map_status_to_error(504, body, "gemini")
+    assert isinstance(err, RequestTimeoutError)
+
+
+def test_gemini_grpc_resource_exhausted():
+    """Gemini adapter maps RESOURCE_EXHAUSTED gRPC status to RateLimitError."""
+    import json
+    from attractor.llm.adapters.gemini import _map_status_to_error
+
+    body = json.dumps({"error": {"status": "RESOURCE_EXHAUSTED", "message": "quota exceeded"}})
+    err = _map_status_to_error(429, body, "gemini")
+    assert isinstance(err, RateLimitError)
+
+
+def test_gemini_grpc_permission_denied():
+    """Gemini adapter maps PERMISSION_DENIED gRPC status to AccessDeniedError."""
+    import json
+    from attractor.llm.types import AccessDeniedError
+    from attractor.llm.adapters.gemini import _map_status_to_error
+
+    body = json.dumps({"error": {"status": "PERMISSION_DENIED", "message": "denied"}})
+    err = _map_status_to_error(403, body, "gemini")
+    assert isinstance(err, AccessDeniedError)
+
+
+def test_openai_compatible_error_mapping():
+    """OpenAI-compatible adapter maps HTTP status codes properly."""
+    from attractor.llm.types import (
+        AuthenticationError, RateLimitError, ServerError, InvalidRequestError,
+    )
+    from attractor.llm.adapters.openai_compatible import _map_status_to_error
+
+    assert isinstance(_map_status_to_error(401, "unauth", "test"), AuthenticationError)
+    assert isinstance(_map_status_to_error(429, "rate", "test"), RateLimitError)
+    assert isinstance(_map_status_to_error(500, "server", "test"), ServerError)
+    assert isinstance(_map_status_to_error(400, "bad", "test"), InvalidRequestError)
+
+
+def test_error_body_classification():
+    """Adapters classify errors by body content when status code is ambiguous (spec Section 6.5)."""
+    from attractor.llm.types import (
+        NotFoundError, AuthenticationError, ContextLengthError, ContentFilterError,
+    )
+    from attractor.llm.adapters.anthropic import _map_status_to_error
+
+    # Unknown status code (e.g. 418) with body hints
+    assert isinstance(
+        _map_status_to_error(418, "model not found", "test"), NotFoundError
+    )
+    assert isinstance(
+        _map_status_to_error(418, "resource does not exist", "test"), NotFoundError
+    )
+    assert isinstance(
+        _map_status_to_error(418, "unauthorized access", "test"), AuthenticationError
+    )
+    assert isinstance(
+        _map_status_to_error(418, "invalid key provided", "test"), AuthenticationError
+    )
+    assert isinstance(
+        _map_status_to_error(418, "context length exceeded", "test"), ContextLengthError
+    )
+    assert isinstance(
+        _map_status_to_error(418, "too many tokens in request", "test"), ContextLengthError
+    )
+    assert isinstance(
+        _map_status_to_error(418, "content filter triggered", "test"), ContentFilterError
+    )
+    assert isinstance(
+        _map_status_to_error(418, "blocked by safety policy", "test"), ContentFilterError
+    )

@@ -21,6 +21,7 @@ from attractor.llm.types import (
     AccessDeniedError,
     AdapterTimeout,
     AuthenticationError,
+    ContentFilterError,
     ContentKind,
     ContentPart,
     ContextLengthError,
@@ -51,15 +52,42 @@ _MAX_RETRIES = 3
 _BACKOFF_BASE = 1.0
 
 
+_GRPC_STATUS_MAP: dict[str, type] = {
+    "PERMISSION_DENIED": AccessDeniedError,
+    "NOT_FOUND": NotFoundError,
+    "RESOURCE_EXHAUSTED": RateLimitError,
+    "UNAVAILABLE": ServerError,
+    "INTERNAL": ServerError,
+}
+
+
 def _map_status_to_error(status_code: int, body: str, provider: str) -> ProviderError:
     msg = f"Gemini API error {status_code}: {body}"
     kw: dict = {"provider": provider, "raw": body}
+    # Try gRPC status from response body (spec Section 6.4)
+    try:
+        import json as _json
+        data = _json.loads(body)
+        grpc_status = ""
+        if isinstance(data, dict):
+            err = data.get("error", {})
+            grpc_status = err.get("status", "")
+        if grpc_status == "DEADLINE_EXCEEDED":
+            from attractor.llm.types import RequestTimeoutError
+            return RequestTimeoutError(msg, **kw)
+        if grpc_status in _GRPC_STATUS_MAP:
+            return _GRPC_STATUS_MAP[grpc_status](msg, **kw)
+    except Exception:
+        pass
     if status_code == 401:
         return AuthenticationError(msg, **kw)
     if status_code == 403:
         return AccessDeniedError(msg, **kw)
     if status_code == 404:
         return NotFoundError(msg, **kw)
+    if status_code == 408:
+        from attractor.llm.types import RequestTimeoutError
+        return RequestTimeoutError(msg, **kw)
     if status_code in (400, 422):
         return InvalidRequestError(msg, **kw)
     if status_code == 413:
@@ -68,6 +96,16 @@ def _map_status_to_error(status_code: int, body: str, provider: str) -> Provider
         return RateLimitError(msg, **kw)
     if status_code >= 500:
         return ServerError(msg, status_code=status_code, **kw)
+    # Body-based classification for ambiguous status codes (spec Section 6.5)
+    lower = body.lower()
+    if "not found" in lower or "does not exist" in lower:
+        return NotFoundError(msg, **kw)
+    if "unauthorized" in lower or "invalid key" in lower:
+        return AuthenticationError(msg, **kw)
+    if "context length" in lower or "too many tokens" in lower:
+        return ContextLengthError(msg, **kw)
+    if "content filter" in lower or "safety" in lower:
+        return ContentFilterError(msg, **kw)
     return ProviderError(msg, status_code=status_code, **kw)
 
 

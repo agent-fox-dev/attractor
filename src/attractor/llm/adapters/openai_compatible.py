@@ -18,13 +18,21 @@ import httpx
 
 from attractor.llm.adapters.base import ProviderAdapter
 from attractor.llm.types import (
+    AccessDeniedError,
+    AuthenticationError,
+    ContentFilterError,
     ContentKind,
     ContentPart,
+    ContextLengthError,
     FinishReason,
+    InvalidRequestError,
     Message,
     NetworkError,
+    NotFoundError,
     ProviderError,
+    RateLimitError,
     Request,
+    RequestTimeoutError,
     Response,
     Role,
     ServerError,
@@ -36,6 +44,38 @@ from attractor.llm.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _map_status_to_error(status_code: int, body: str, provider: str) -> ProviderError:
+    msg = f"OpenAI-compatible API error {status_code}: {body}"
+    kw: dict = {"provider": provider, "raw": body}
+    if status_code == 401:
+        return AuthenticationError(msg, **kw)
+    if status_code == 403:
+        return AccessDeniedError(msg, **kw)
+    if status_code == 404:
+        return NotFoundError(msg, **kw)
+    if status_code == 408:
+        return RequestTimeoutError(msg, **kw)
+    if status_code in (400, 422):
+        return InvalidRequestError(msg, **kw)
+    if status_code == 413:
+        return ContextLengthError(msg, **kw)
+    if status_code == 429:
+        return RateLimitError(msg, **kw)
+    if status_code >= 500:
+        return ServerError(msg, status_code=status_code, **kw)
+    # Body-based classification for ambiguous status codes (spec Section 6.5)
+    lower = body.lower()
+    if "not found" in lower or "does not exist" in lower:
+        return NotFoundError(msg, **kw)
+    if "unauthorized" in lower or "invalid key" in lower:
+        return AuthenticationError(msg, **kw)
+    if "context length" in lower or "too many tokens" in lower:
+        return ContextLengthError(msg, **kw)
+    if "content filter" in lower or "safety" in lower:
+        return ContentFilterError(msg, **kw)
+    return ProviderError(msg, status_code=status_code, **kw)
 
 
 class OpenAICompatibleAdapter(ProviderAdapter):
@@ -155,10 +195,8 @@ class OpenAICompatibleAdapter(ProviderAdapter):
             raise NetworkError(str(exc), provider=self._provider_name) from exc
 
         if resp.status_code != 200:
-            raise ProviderError(
-                f"HTTP {resp.status_code}: {resp.text[:500]}",
-                status_code=resp.status_code,
-                provider=self._provider_name,
+            raise _map_status_to_error(
+                resp.status_code, resp.text[:500], self._provider_name,
             )
 
         data = resp.json()
@@ -231,10 +269,8 @@ class OpenAICompatibleAdapter(ProviderAdapter):
             async with client.stream("POST", url, json=payload) as resp:
                 if resp.status_code != 200:
                     body = await resp.aread()
-                    raise ProviderError(
-                        f"HTTP {resp.status_code}: {body.decode()[:500]}",
-                        status_code=resp.status_code,
-                        provider=self._provider_name,
+                    raise _map_status_to_error(
+                        resp.status_code, body.decode()[:500], self._provider_name,
                     )
 
                 async for line in resp.aiter_lines():
