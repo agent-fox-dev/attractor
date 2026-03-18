@@ -306,3 +306,19 @@ def test_shell_default_timeout_from_profile():
     # The command should have run with the profile's default timeout (120s)
     assert result.is_error is False
     assert "test" in result.content
+
+
+def test_git_branch_in_environment_block():
+    """System prompt includes Git branch in <environment> block."""
+    env = LocalExecutionEnvironment()
+    profile = AnthropicProfile()
+    prompt = profile.build_system_prompt(env)
+    assert "Git branch:" in prompt
+
+
+def test_git_branch_method():
+    """LocalExecutionEnvironment has git_branch method."""
+    env = LocalExecutionEnvironment()
+    branch = env.git_branch()
+    # In the test repo, we should get a branch name
+    assert isinstance(branch, str)

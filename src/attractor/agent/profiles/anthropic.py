@@ -48,6 +48,7 @@ class AnthropicProfile(ProviderProfile):
         os_version = environment.os_version()
 
         is_git = environment.is_git_repo()
+        git_branch = environment.git_branch() if is_git else ""
         git_context = environment.git_context() if is_git else ""
 
         prompt = f"""You are an expert software engineer and an AI assistant. You help users with coding tasks by reading files, editing code, running commands, and iterating until the task is done.
@@ -81,6 +82,7 @@ Today's date: {today}
 Knowledge cutoff: May 2025
 Model: {self.model}
 Is git repository: {is_git}
+Git branch: {git_branch}
 </environment>"""
 
         if git_context:

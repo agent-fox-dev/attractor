@@ -545,3 +545,45 @@ def test_grep_output_mode_parameter():
     params = GREP_DEF.parameters
     assert "output_mode" in params["properties"]
     assert "enum" in params["properties"]["output_mode"]
+
+
+def test_unsupported_tool_choice_error():
+    from attractor.llm.types import UnsupportedToolChoiceError, ProviderError
+
+    err = UnsupportedToolChoiceError("mode 'named' not supported")
+    assert isinstance(err, ProviderError)
+    assert err.retryable is False
+
+
+def test_stream_accumulator_process_alias():
+    from attractor.llm.high_level import StreamAccumulator
+
+    acc = StreamAccumulator()
+    acc.process(StreamEvent(kind=StreamEventKind.CONTENT_DELTA, delta="hi"))
+    assert acc.text == "hi"
+
+
+def test_generate_accepts_system_param():
+    """generate() signature includes system, top_p, stop_sequences, response_format, timeout."""
+    import inspect
+    from attractor.llm.high_level import generate
+
+    sig = inspect.signature(generate)
+    assert "system" in sig.parameters
+    assert "top_p" in sig.parameters
+    assert "stop_sequences" in sig.parameters
+    assert "response_format" in sig.parameters
+    assert "timeout" in sig.parameters
+    assert "max_retries" in sig.parameters
+    # Default max_tool_rounds should be 1
+    assert sig.parameters["max_tool_rounds"].default == 1
+
+
+def test_stream_accepts_timeout_param():
+    import inspect
+    from attractor.llm.high_level import stream
+
+    sig = inspect.signature(stream)
+    assert "system" in sig.parameters
+    assert "timeout" in sig.parameters
+    assert sig.parameters["max_tool_rounds"].default == 1

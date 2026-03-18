@@ -394,6 +394,24 @@ def run(
             emitter=emitter, logs_root=config.logs_root,
         )
 
+        # Write status.json for this node if logs_root is set and handler didn't
+        if config.logs_root:
+            import json as _json
+            stage_dir = Path(config.logs_root) / node.id
+            status_file = stage_dir / "status.json"
+            if not status_file.exists():
+                stage_dir.mkdir(parents=True, exist_ok=True)
+                status_data = {
+                    "node_id": node.id,
+                    "status": outcome.status.value,
+                    "notes": outcome.notes or (
+                        "auto-status: handler completed without writing status"
+                        if getattr(node, "auto_status", False) else ""
+                    ),
+                    "failure_reason": outcome.failure_reason,
+                }
+                status_file.write_text(_json.dumps(status_data, indent=2))
+
         # Apply context updates from outcome
         if outcome.context_updates:
             context.apply_updates(outcome.context_updates)

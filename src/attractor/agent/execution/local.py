@@ -366,6 +366,10 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         result = self.exec_command("git rev-parse --git-dir", timeout_ms=3000)
         return result.exit_code == 0
 
+    def git_branch(self) -> str:
+        result = self.exec_command("git branch --show-current", timeout_ms=3000)
+        return result.stdout.strip() if result.exit_code == 0 else ""
+
     def git_context(self) -> str:
         """Return branch, short status, and recent commits."""
         if not self.is_git_repo():

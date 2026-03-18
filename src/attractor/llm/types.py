@@ -655,6 +655,13 @@ class InvalidToolCallError(ProviderError):
         super().__init__(message, retryable=False, **kw)
 
 
+class UnsupportedToolChoiceError(ProviderError):
+    """Adapter does not support the requested tool_choice mode."""
+
+    def __init__(self, message: str = "Unsupported tool choice mode", **kw: Any) -> None:
+        super().__init__(message, retryable=False, **kw)
+
+
 class NoObjectGeneratedError(ProviderError):
     """generate_object() failed to produce a valid object."""
 

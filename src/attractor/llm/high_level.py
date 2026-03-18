@@ -37,6 +37,7 @@ from attractor.llm.types import (
     Role,
     StreamEvent,
     StreamEventKind,
+    TimeoutConfig,
     ToolCallData,
     ToolDefinition,
     ToolResultData,
@@ -217,6 +218,7 @@ async def generate(
     stop_when: StopCondition | None = None,
     retry_policy: RetryPolicy | None = None,
     max_retries: int | None = None,
+    timeout: float | TimeoutConfig | None = None,
     abort_signal: AbortSignal | None = None,
 ) -> GenerateResult:
     """Generate an LLM response, optionally with automatic tool execution.
@@ -486,6 +488,7 @@ async def stream(
     client: Client | None = None,
     max_tool_rounds: int = 1,
     tool_executor: ToolExecutor | None = None,
+    timeout: float | TimeoutConfig | None = None,
     abort_signal: AbortSignal | None = None,
 ) -> AsyncIterator[StreamEvent]:
     """Stream LLM response events.
@@ -692,6 +695,10 @@ class StreamAccumulator:
         self._tool_calls: list[ToolCallData] = []
         self._usage = Usage()
         self._finish_reason: FinishReason | None = None
+
+    def process(self, event: StreamEvent) -> None:
+        """Ingest a single stream event (alias for :meth:`add`)."""
+        self.add(event)
 
     def add(self, event: StreamEvent) -> None:
         """Ingest a single stream event."""

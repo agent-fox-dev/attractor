@@ -83,6 +83,10 @@ class ExecutionEnvironment(ABC):
         """Return True if the working directory is inside a git repository."""
         return False
 
+    def git_branch(self) -> str:
+        """Return the current git branch name, or empty string if not in a repo."""
+        return ""
+
     def git_context(self) -> str:
         """Return a short git context string (branch, status, recent commits)."""
         return ""

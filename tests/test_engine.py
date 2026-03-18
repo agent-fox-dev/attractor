@@ -616,3 +616,47 @@ def test_goal_gate_terminal_check():
     # This should succeed because the simulated backend produces SUCCESS
     outcome = _run(dot)
     assert outcome.status == StageStatus.SUCCESS
+
+
+def test_status_json_written_for_nodes():
+    """Engine writes status.json for each node when logs_root is set."""
+    import json
+
+    dot = """
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        a [shape=box, prompt="Step A"]
+        start -> a -> exit
+    }
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config = PipelineConfig(logs_root=tmpdir)
+        runner = PipelineRunner()
+        runner.run(dot, config=config)
+        status_file = Path(tmpdir) / "a" / "status.json"
+        assert status_file.exists()
+        status = json.loads(status_file.read_text())
+        assert status["status"] == "success"
+        assert status["node_id"] == "a"
+
+
+def test_codergen_label_fallback():
+    """Codergen handler uses node.label when node.prompt is empty."""
+    dot = """
+    digraph T {
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        a [shape=box, label="Do the work"]
+        start -> a -> exit
+    }
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config = PipelineConfig(logs_root=tmpdir)
+        runner = PipelineRunner()
+        outcome = runner.run(dot, config=config)
+        assert outcome.status == StageStatus.SUCCESS
+        # The prompt file should contain the label text
+        prompt_file = Path(tmpdir) / "a" / "prompt.md"
+        assert prompt_file.exists()
+        assert "Do the work" in prompt_file.read_text()

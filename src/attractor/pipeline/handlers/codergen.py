@@ -49,8 +49,8 @@ class CodergenHandler(Handler):
         logs_root: Path | None = None,
         emitter: "EventEmitter | None" = None,
     ) -> Outcome:
-        # Expand $goal in the prompt
-        prompt = node.prompt
+        # Expand $goal in the prompt, falling back to label if prompt is empty
+        prompt = node.prompt or node.label or ""
         if graph.goal and "$goal" in prompt:
             prompt = prompt.replace("$goal", graph.goal)
 

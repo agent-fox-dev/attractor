@@ -168,6 +168,7 @@ Today's date: {today}
 Knowledge cutoff: May 2025
 Model: {self.model}
 Is git repository: {environment.is_git_repo()}
+Git branch: {environment.git_branch()}
 </environment>"""
 
         git_context = environment.git_context()
