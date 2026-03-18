@@ -83,6 +83,22 @@ class StepResult:
     tool_calls: list[ToolCallData] = field(default_factory=list)
     tool_results: list[ToolResultData] = field(default_factory=list)
 
+    @property
+    def text(self) -> str:
+        return self.response.text
+
+    @property
+    def reasoning(self) -> str:
+        return self.response.reasoning
+
+    @property
+    def finish_reason(self) -> FinishReason:
+        return self.response.finish_reason
+
+    @property
+    def usage(self) -> Usage:
+        return self.response.usage
+
 
 @dataclass
 class GenerateResult:
@@ -104,6 +120,10 @@ class GenerateResult:
     @property
     def reasoning(self) -> str:
         return self.response.reasoning
+
+    @property
+    def usage(self) -> Usage:
+        return self.response.usage
 
     @property
     def tool_results(self) -> list[ToolResultData]:

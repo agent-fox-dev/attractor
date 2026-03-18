@@ -30,7 +30,7 @@ class FanInHandler(Handler):
         logs_root: Path | None = None,
         emitter: "EventEmitter | None" = None,
     ) -> Outcome:
-        parallel_results = context.get("parallel_results", {})
+        parallel_results = context.get("parallel.results", {}) or context.get("parallel_results", {})
 
         if not parallel_results:
             return Outcome(
@@ -53,15 +53,15 @@ class FanInHandler(Handler):
         best = self._heuristic_select(candidates)
 
         # Summarise
+        all_fail = all(c["status"] == "fail" for c in candidates)
         all_success = all(c["status"] == "success" for c in candidates)
-        any_fail = any(c["status"] == "fail" for c in candidates)
 
-        if all_success:
+        if all_fail:
+            status = StageStatus.FAIL
+        elif all_success:
             status = StageStatus.SUCCESS
-        elif any_fail:
-            status = StageStatus.PARTIAL_SUCCESS
         else:
-            status = StageStatus.SUCCESS
+            status = StageStatus.PARTIAL_SUCCESS
 
         return Outcome(
             status=status,
@@ -104,20 +104,22 @@ class FanInHandler(Handler):
 
     @staticmethod
     def _heuristic_select(candidates: list[dict]) -> dict:
-        """Select best candidate by status priority, then score.
+        """Select best candidate per spec Section 4.9.
 
-        Priority: success > partial_success > other > fail
+        Sort by (outcome_rank ASC, -score DESC, id ASC).
+        outcome_rank: SUCCESS=0, PARTIAL_SUCCESS=1, RETRY=2, FAIL=3.
         """
-        status_priority = {
-            "success": 3,
-            "partial_success": 2,
-            "skipped": 1,
-            "fail": 0,
+        outcome_rank = {
+            "success": 0,
+            "partial_success": 1,
+            "retry": 2,
+            "fail": 3,
         }
-        return max(
+        return min(
             candidates,
             key=lambda c: (
-                status_priority.get(c["status"], 1),
-                c.get("score", 0),
+                outcome_rank.get(c["status"], 3),
+                -c.get("score", 0),
+                c.get("id", ""),
             ),
         )

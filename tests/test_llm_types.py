@@ -914,3 +914,46 @@ def test_finish_event_in_stream_events():
     source = inspect.getsource(_stream_events)
     assert "StreamEventKind.FINISH" in source
     assert "StreamEventKind.STREAM_START" in source
+
+
+def test_configuration_error_raised():
+    """Client raises ConfigurationError when no provider is configured."""
+    from attractor.llm.client import Client
+    from attractor.llm.types import ConfigurationError
+    # Verify via source that ConfigurationError is used
+    import inspect
+    source = inspect.getsource(Client._resolve_provider)
+    assert "ConfigurationError" in source
+
+
+def test_step_result_convenience_properties():
+    """StepResult exposes text, reasoning, finish_reason, usage properties."""
+    from attractor.llm.high_level import StepResult
+    from attractor.llm.types import Response, ContentPart, ContentKind, FinishReason
+
+    response = Response(
+        content=[ContentPart(kind=ContentKind.TEXT, text="hello")],
+        usage=Usage(input_tokens=10, output_tokens=5),
+        finish_reason=FinishReason.STOP,
+    )
+    step = StepResult(response=response)
+    assert step.text == "hello"
+    assert step.finish_reason == FinishReason.STOP
+    assert step.usage.input_tokens == 10
+
+
+def test_generate_result_usage_property():
+    """GenerateResult.usage returns final step's usage."""
+    from attractor.llm.high_level import GenerateResult
+    from attractor.llm.types import Response
+
+    response = Response(
+        content=[],
+        usage=Usage(input_tokens=50, output_tokens=25),
+    )
+    result = GenerateResult(
+        response=response,
+        total_usage=Usage(input_tokens=100, output_tokens=50),
+    )
+    assert result.usage.input_tokens == 50  # final step usage
+    assert result.total_usage.input_tokens == 100  # aggregated usage

@@ -419,6 +419,11 @@ def run(
         if outcome.context_updates:
             context.apply_updates(outcome.context_updates)
 
+        # Set context variables per spec Section 3.2
+        context.set("outcome", outcome.status.value)
+        if outcome.preferred_label:
+            context.set("preferred_label", outcome.preferred_label)
+
         node_outcomes[node.id] = outcome
         completed_nodes.append(node.id)
         node_retries[node.id] = node_retries.get(node.id, 0)
@@ -502,6 +507,11 @@ def run(
         # Select next edge
         edge = select_edge(node, outcome, context, graph)
         if edge is None:
+            if outcome.status == StageStatus.FAIL:
+                raise RuntimeError(
+                    f"Stage '{node.id}' failed with no outgoing fail edge: "
+                    f"{outcome.failure_reason}"
+                )
             # No outgoing edge -- treat as terminal
             final_outcome = outcome
             break

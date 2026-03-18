@@ -86,9 +86,9 @@ class ToolHandler(Handler):
                     status=StageStatus.SUCCESS,
                     notes=stdout[:2000],
                     context_updates={
-                        "tool_stdout": stdout,
-                        "tool_stderr": stderr,
-                        "tool_return_code": result.returncode,
+                        "tool.output": stdout,
+                        "tool.stderr": stderr,
+                        "tool.return_code": result.returncode,
                     },
                 )
             else:
@@ -97,9 +97,9 @@ class ToolHandler(Handler):
                     failure_reason=f"Command exited with code {result.returncode}: {stderr[:500]}",
                     notes=stdout[:2000],
                     context_updates={
-                        "tool_stdout": stdout,
-                        "tool_stderr": stderr,
-                        "tool_return_code": result.returncode,
+                        "tool.output": stdout,
+                        "tool.stderr": stderr,
+                        "tool.return_code": result.returncode,
                     },
                 )
 

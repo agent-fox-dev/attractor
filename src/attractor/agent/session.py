@@ -710,6 +710,7 @@ class Session:
             except Exception as exc:
                 self._emit(EventKind.ERROR, error=str(exc))
                 self.state = SessionState.CLOSED
+                self._emit(EventKind.SESSION_END, state="closed", error=str(exc))
                 return
 
             # 3b. Track usage and check budget
@@ -746,7 +747,6 @@ class Session:
                 if response.finish_reason == FinishReason.STOP and response.text.rstrip().endswith("?"):
                     self.state = SessionState.AWAITING_INPUT
                     self._emit(EventKind.AWAITING_INPUT, text=response.text)
-                    self._emit(EventKind.ASSISTANT_TEXT_END, text=response.text, awaiting_input=True)
                 break
 
             # 7. Execute tool calls
@@ -794,6 +794,16 @@ class Session:
                 and round_count >= self.config.max_tool_rounds_per_input
             ):
                 self._emit(EventKind.TURN_LIMIT, round=round_count)
+                break
+
+            if (
+                self.config.max_turns > 0
+                and _count_turns(self.history) >= self.config.max_turns
+            ):
+                self._emit(
+                    EventKind.TURN_LIMIT,
+                    total_turns=_count_turns(self.history),
+                )
                 break
 
             if self.abort_signaled:
@@ -850,6 +860,7 @@ class Session:
             except Exception as exc:
                 self._emit(EventKind.ERROR, error=str(exc))
                 self.state = SessionState.CLOSED
+                self._emit(EventKind.SESSION_END, state="closed", error=str(exc))
                 return
 
             full_text = "".join(text_parts)

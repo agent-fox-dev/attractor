@@ -107,19 +107,19 @@ class ParallelHandler(Handler):
                             f.cancel()
                         break
 
-                context.set("parallel_results", _result_map())
+                context.set("parallel.results", _result_map())
                 if first_success_outcome is not None:
                     _emit(PipelineEventKind.PARALLEL_COMPLETED, node_id=node.id, status="success")
                     return Outcome(
                         status=StageStatus.SUCCESS,
                         notes="First success from parallel branches.",
-                        context_updates={"parallel_results": _result_map()},
+                        context_updates={"parallel.results": _result_map()},
                     )
                 _emit(PipelineEventKind.PARALLEL_COMPLETED, node_id=node.id, status="fail")
                 return Outcome(
                     status=StageStatus.FAIL,
                     failure_reason="No branch succeeded in first_success mode.",
-                    context_updates={"parallel_results": _result_map()},
+                    context_updates={"parallel.results": _result_map()},
                 )
 
             elif join_policy in ("k_of_n", "quorum"):
@@ -138,19 +138,19 @@ class ParallelHandler(Handler):
                                 f.cancel()
                             break
 
-                context.set("parallel_results", _result_map())
+                context.set("parallel.results", _result_map())
                 if success_count >= required:
                     _emit(PipelineEventKind.PARALLEL_COMPLETED, node_id=node.id, status="success")
                     return Outcome(
                         status=StageStatus.SUCCESS,
                         notes=f"{success_count}/{total} branches succeeded (needed {required}).",
-                        context_updates={"parallel_results": _result_map()},
+                        context_updates={"parallel.results": _result_map()},
                     )
                 _emit(PipelineEventKind.PARALLEL_COMPLETED, node_id=node.id, status="fail")
                 return Outcome(
                     status=StageStatus.FAIL,
                     failure_reason=f"Only {success_count}/{total} branches succeeded (needed {required}).",
-                    context_updates={"parallel_results": _result_map()},
+                    context_updates={"parallel.results": _result_map()},
                 )
 
             else:
@@ -161,16 +161,16 @@ class ParallelHandler(Handler):
                     if outcome.status == StageStatus.FAIL and error_policy == "fail_fast":
                         for f in futures:
                             f.cancel()
-                        context.set("parallel_results", _result_map())
+                        context.set("parallel.results", _result_map())
                         _emit(PipelineEventKind.PARALLEL_COMPLETED, node_id=node.id, status="fail")
                         return Outcome(
                             status=StageStatus.FAIL,
                             failure_reason=f"Branch '{tid}' failed: {outcome.failure_reason}",
-                            context_updates={"parallel_results": _result_map()},
+                            context_updates={"parallel.results": _result_map()},
                         )
 
         result_map = _result_map()
-        context.set("parallel_results", result_map)
+        context.set("parallel.results", result_map)
 
         failures = [k for k, v in results.items() if v.status == StageStatus.FAIL]
         if failures and error_policy != "ignore":
@@ -178,12 +178,12 @@ class ParallelHandler(Handler):
             return Outcome(
                 status=StageStatus.PARTIAL_SUCCESS,
                 failure_reason=f"Branches failed: {', '.join(failures)}",
-                context_updates={"parallel_results": result_map},
+                context_updates={"parallel.results": result_map},
             )
 
         _emit(PipelineEventKind.PARALLEL_COMPLETED, node_id=node.id, status="success")
         return Outcome(
             status=StageStatus.SUCCESS,
             notes=f"All {len(results)} branches completed.",
-            context_updates={"parallel_results": result_map},
+            context_updates={"parallel.results": result_map},
         )

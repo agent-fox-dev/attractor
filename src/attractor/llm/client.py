@@ -15,6 +15,7 @@ from typing import Any, Protocol, runtime_checkable
 from attractor.llm.adapters.base import ProviderAdapter
 from attractor.llm.types import (
     AbortError,
+    ConfigurationError,
     ProviderError,
     Request,
     Response,
@@ -197,7 +198,7 @@ class Client:
     def _resolve_provider(self, request: Request) -> ProviderAdapter:
         name = request.provider or self._default_provider
         if name is None:
-            raise ProviderError(
+            raise ConfigurationError(
                 "No provider specified and no default provider configured.",
                 provider=None,
             )
