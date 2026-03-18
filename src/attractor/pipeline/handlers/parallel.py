@@ -74,9 +74,8 @@ class ParallelHandler(Handler):
                 handler = registry.resolve(target_node)
                 branch_ctx = context.clone()
                 outcome = handler.execute(target_node, branch_ctx, graph, logs_root)
-                if outcome.context_updates:
-                    with lock:
-                        context.apply_updates(outcome.context_updates)
+                # Note: branch context_updates are NOT merged back to parent per spec Section 3.8.
+                # Only the handler's final outcome context_updates are applied.
                 _emit(PipelineEventKind.PARALLEL_BRANCH_COMPLETED, node_id=node.id, branch_target=target_id, status=outcome.status.value)
                 return target_id, outcome
             except Exception as exc:

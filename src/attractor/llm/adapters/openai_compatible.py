@@ -196,10 +196,13 @@ class OpenAICompatibleAdapter(ProviderAdapter):
 
         # Usage
         usage_data = data.get("usage", {})
+        cached_tokens = usage_data.get("prompt_tokens_details", {}).get("cached_tokens") if isinstance(usage_data.get("prompt_tokens_details"), dict) else None
         usage = Usage(
             input_tokens=usage_data.get("prompt_tokens", 0),
             output_tokens=usage_data.get("completion_tokens", 0),
             total_tokens=usage_data.get("total_tokens", 0),
+            cache_read_tokens=cached_tokens,
+            raw=usage_data,
         )
 
         # Finish reason
@@ -211,10 +214,12 @@ class OpenAICompatibleAdapter(ProviderAdapter):
         return Response(
             id=data.get("id", ""),
             model=data.get("model", ""),
+            provider=self._provider_name,
             content=parts,
             usage=usage,
             finish_reason=finish_reason,
             raw_finish_reason=fr_str,
+            raw=data,
         )
 
     async def stream(self, request: Request) -> AsyncIterator[StreamEvent]:
@@ -268,7 +273,7 @@ class OpenAICompatibleAdapter(ProviderAdapter):
                     if "usage" in chunk:
                         u = chunk["usage"]
                         yield StreamEvent(
-                            kind=StreamEventKind.CONTENT_END,
+                            kind=StreamEventKind.USAGE,
                             usage=Usage(
                                 input_tokens=u.get("prompt_tokens", 0),
                                 output_tokens=u.get("completion_tokens", 0),

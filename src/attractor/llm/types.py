@@ -64,10 +64,12 @@ class StreamEventKind(StrEnum):
     THINKING_START = "thinking_start"
     THINKING_DELTA = "thinking_delta"
     THINKING_END = "thinking_end"
+    STREAM_START = "stream_start"
     STEP_FINISH = "step_finish"
     USAGE = "usage"
     DONE = "done"
     ERROR = "error"
+    PROVIDER_EVENT = "provider_event"
 
 
 # ---------------------------------------------------------------------------

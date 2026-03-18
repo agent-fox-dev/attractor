@@ -91,6 +91,7 @@ class GenerateResult:
     response: Response
     steps: list[StepResult] = field(default_factory=list)
     total_usage: Usage = field(default_factory=Usage)
+    output: Any = None
 
     @property
     def text(self) -> str:
@@ -381,13 +382,16 @@ async def generate_object(
     client: Client | None = None,
     retry_policy: RetryPolicy | None = None,
     abort_signal: AbortSignal | None = None,
-) -> dict[str, Any]:
+) -> GenerateResult:
     """Generate a structured object matching *schema*.
 
     Uses the provider's native JSON mode or response_format when available.
     For providers that lack native structured output (e.g. Anthropic), falls
     back to tool-based extraction: defines a tool whose input_schema matches
     *schema* and forces the model to call it.
+
+    Returns a :class:`GenerateResult` with ``.output`` set to the parsed
+    object and ``.text`` set to the raw response text.
 
     Raises :class:`NoObjectGeneratedError` if the response cannot be
     parsed as valid JSON.
@@ -404,12 +408,13 @@ async def generate_object(
     )
 
     if use_tool_fallback:
-        return await _generate_object_via_tool(
+        obj, response = await _generate_object_via_tool(
             effective_client, model, messages, schema=schema,
             max_tokens=max_tokens, temperature=temperature,
             provider=provider, provider_options=provider_options,
             policy=policy, abort_signal=abort_signal,
         )
+        return GenerateResult(response=response, output=obj)
 
     request = Request(
         model=model,
@@ -432,11 +437,12 @@ async def generate_object(
         raise NoObjectGeneratedError("Model returned empty response")
 
     try:
-        return json.loads(text)
+        obj = json.loads(text)
     except json.JSONDecodeError as exc:
         raise NoObjectGeneratedError(
             f"Failed to parse model output as JSON: {exc}"
         ) from exc
+    return GenerateResult(response=response, output=obj)
 
 
 async def _generate_object_via_tool(
@@ -451,7 +457,7 @@ async def _generate_object_via_tool(
     provider_options: dict[str, Any] | None,
     policy: RetryPolicy,
     abort_signal: AbortSignal | None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], Response]:
     """Fallback: use a tool call to extract structured output."""
     tool = ToolDefinition(
         name="_extract_object",
@@ -480,10 +486,10 @@ async def _generate_object_via_tool(
     if tool_calls:
         args = tool_calls[0].arguments
         if isinstance(args, dict):
-            return args
+            return args, response
         if isinstance(args, str):
             try:
-                return json.loads(args)
+                return json.loads(args), response
             except json.JSONDecodeError as exc:
                 raise NoObjectGeneratedError(
                     f"Failed to parse tool call arguments as JSON: {exc}"
@@ -493,7 +499,7 @@ async def _generate_object_via_tool(
     text = response.text.strip()
     if text:
         try:
-            return json.loads(text)
+            return json.loads(text), response
         except json.JSONDecodeError:
             pass
 
@@ -526,6 +532,7 @@ async def _stream_events(
 ) -> AsyncIterator[StreamEvent]:
     """Internal async generator that yields StreamEvent items with tool loop."""
     effective_client = client or _get_default_client()
+    yield StreamEvent(kind=StreamEventKind.STREAM_START)
 
     for _round in range(max(max_tool_rounds, 0) + 1):
         request = Request(

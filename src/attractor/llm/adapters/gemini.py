@@ -399,6 +399,7 @@ class GeminiAdapter(ProviderAdapter):
             output_tokens=usage_raw.get("candidatesTokenCount", 0),
             total_tokens=usage_raw.get("totalTokenCount", 0),
             reasoning_tokens=usage_raw.get("thoughtsTokenCount"),
+            cache_read_tokens=usage_raw.get("cachedContentTokenCount"),
             raw=usage_raw,
         )
 
@@ -519,6 +520,7 @@ class GeminiAdapter(ProviderAdapter):
                         output_tokens=usage_raw.get("candidatesTokenCount", 0),
                         total_tokens=usage_raw.get("totalTokenCount", 0),
                         reasoning_tokens=usage_raw.get("thoughtsTokenCount"),
+                        cache_read_tokens=usage_raw.get("cachedContentTokenCount"),
                     ),
                 )
             return

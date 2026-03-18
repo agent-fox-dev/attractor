@@ -163,13 +163,13 @@ def select_edge(
                     return edge
 
     # Step 4 & 5: highest weight with lexical tiebreak (unconditional edges)
-    unlabelled = [e for e in outgoing if not e.label and not e.condition]
-    if unlabelled:
-        unlabelled.sort(key=lambda e: e.weight, reverse=True)
-        return unlabelled[0]
+    unconditional = [e for e in outgoing if not e.condition]
+    if unconditional:
+        unconditional.sort(key=lambda e: (-e.weight, e.to_node))
+        return unconditional[0]
 
-    # Fallback: first edge (highest weight)
-    return sorted(outgoing, key=lambda e: e.weight, reverse=True)[0]
+    # Fallback: any edge, best by weight then lexical
+    return sorted(outgoing, key=lambda e: (-e.weight, e.to_node))[0]
 
 
 def check_goal_gates(

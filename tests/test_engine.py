@@ -748,3 +748,49 @@ def test_fan_in_selects_best_candidate():
     assert outcome.context_updates is not None
     assert outcome.context_updates["parallel.fan_in.best_id"] == "branch_c"
     assert outcome.context_updates["parallel.fan_in.best_outcome"] == "success"
+
+
+def test_edge_selection_step4_includes_labeled_unconditional():
+    """Step 4 considers unconditional edges even if they have labels (spec Section 3.3)."""
+    from attractor.pipeline.engine import select_edge
+    from attractor.pipeline.graph import Edge, Node, Graph, Outcome, StageStatus
+    from attractor.pipeline.context import Context
+
+    node = Node(id="a", shape="box")
+    graph = Graph(name="test")
+    graph.nodes["a"] = node
+    graph.nodes["b"] = Node(id="b", shape="box")
+    graph.nodes["c"] = Node(id="c", shape="box")
+    # Edge with label but no condition should be considered in step 4
+    graph.edges = [
+        Edge(from_node="a", to_node="b", label="go", weight=1),
+        Edge(from_node="a", to_node="c", label="alt", weight=5),
+    ]
+    outcome = Outcome(status=StageStatus.SUCCESS)
+    context = Context()
+
+    selected = select_edge(node, outcome, context, graph)
+    # Should pick edge to "c" because it has higher weight (step 4)
+    assert selected.to_node == "c"
+
+
+def test_edge_selection_step4_lexical_tiebreak():
+    """Step 5: edges with equal weight are broken by lexical order of target node ID."""
+    from attractor.pipeline.engine import select_edge
+    from attractor.pipeline.graph import Edge, Node, Graph, Outcome, StageStatus
+    from attractor.pipeline.context import Context
+
+    node = Node(id="a", shape="box")
+    graph = Graph(name="test")
+    graph.nodes["a"] = node
+    graph.nodes["zebra"] = Node(id="zebra", shape="box")
+    graph.nodes["alpha"] = Node(id="alpha", shape="box")
+    graph.edges = [
+        Edge(from_node="a", to_node="zebra", weight=3),
+        Edge(from_node="a", to_node="alpha", weight=3),
+    ]
+    outcome = Outcome(status=StageStatus.SUCCESS)
+    context = Context()
+
+    selected = select_edge(node, outcome, context, graph)
+    assert selected.to_node == "alpha"  # lexically first

@@ -414,11 +414,13 @@ class OpenAIAdapter(ProviderAdapter):
 
         usage_raw = raw.get("usage", {})
         reasoning_tokens = usage_raw.get("output_tokens_details", {}).get("reasoning_tokens")
+        cached_tokens = usage_raw.get("prompt_tokens_details", {}).get("cached_tokens")
         usage = Usage(
             input_tokens=usage_raw.get("input_tokens", 0),
             output_tokens=usage_raw.get("output_tokens", 0),
             total_tokens=usage_raw.get("total_tokens", 0),
             reasoning_tokens=reasoning_tokens,
+            cache_read_tokens=cached_tokens,
             raw=usage_raw,
         )
 
@@ -595,6 +597,7 @@ class OpenAIAdapter(ProviderAdapter):
             resp_data = data.get("response", {})
             usage_raw = resp_data.get("usage", {})
             reasoning_tokens = usage_raw.get("output_tokens_details", {}).get("reasoning_tokens")
+            cached_tokens = usage_raw.get("prompt_tokens_details", {}).get("cached_tokens")
             yield StreamEvent(
                 kind=StreamEventKind.USAGE,
                 usage=Usage(
@@ -602,6 +605,7 @@ class OpenAIAdapter(ProviderAdapter):
                     output_tokens=usage_raw.get("output_tokens", 0),
                     total_tokens=usage_raw.get("total_tokens", 0),
                     reasoning_tokens=reasoning_tokens,
+                    cache_read_tokens=cached_tokens,
                 ),
             )
             yield StreamEvent(kind=StreamEventKind.DONE)

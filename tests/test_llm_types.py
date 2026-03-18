@@ -797,3 +797,101 @@ def test_grep_output_mode_files_with_matches():
         for line in lines:
             assert "hello" not in line or line.endswith(".py")
             assert ":" not in line.split("/")[-1]  # No line numbers
+
+
+def test_openai_cache_read_tokens():
+    """OpenAI adapter maps prompt_tokens_details.cached_tokens to cache_read_tokens."""
+    from attractor.llm.adapters.openai import OpenAIAdapter
+
+    adapter = OpenAIAdapter(api_key="test-key")
+    raw = {
+        "id": "resp_1",
+        "model": "gpt-4o",
+        "output": [
+            {"type": "message", "content": [{"type": "output_text", "text": "hi"}]},
+        ],
+        "usage": {
+            "input_tokens": 100,
+            "output_tokens": 20,
+            "total_tokens": 120,
+            "prompt_tokens_details": {"cached_tokens": 50},
+        },
+    }
+    response = adapter._parse_response(raw)
+    assert response.usage.cache_read_tokens == 50
+    assert response.usage.input_tokens == 100
+
+
+def test_gemini_cache_read_tokens():
+    """Gemini adapter maps cachedContentTokenCount to cache_read_tokens."""
+    from attractor.llm.adapters.gemini import GeminiAdapter
+
+    adapter = GeminiAdapter(api_key="test-key")
+    raw = {
+        "candidates": [
+            {
+                "content": {"parts": [{"text": "hello"}]},
+                "finishReason": "STOP",
+            }
+        ],
+        "usageMetadata": {
+            "promptTokenCount": 100,
+            "candidatesTokenCount": 20,
+            "totalTokenCount": 120,
+            "cachedContentTokenCount": 30,
+        },
+    }
+    response = adapter._parse_response(raw)
+    assert response.usage.cache_read_tokens == 30
+    assert response.usage.input_tokens == 100
+
+
+def test_openai_compatible_provider_and_raw():
+    """OpenAI-compatible adapter sets provider and raw on Response."""
+    from attractor.llm.adapters.openai_compatible import OpenAICompatibleAdapter
+
+    adapter = OpenAICompatibleAdapter(base_url="http://localhost:11434/v1", provider_name="ollama")
+    data = {
+        "id": "chatcmpl-1",
+        "model": "llama3",
+        "choices": [
+            {
+                "message": {"role": "assistant", "content": "hi"},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+    }
+    response = adapter._parse_response(data)
+    assert response.provider == "ollama"
+    assert response.raw == data
+    assert response.usage.raw == data["usage"]
+
+
+def test_openai_compatible_streaming_usage_event_kind():
+    """OpenAI-compatible adapter emits USAGE kind for usage chunks, not CONTENT_END."""
+    from attractor.llm.types import StreamEventKind
+    # Verify the source code uses USAGE kind
+    import inspect
+    from attractor.llm.adapters.openai_compatible import OpenAICompatibleAdapter
+    source = inspect.getsource(OpenAICompatibleAdapter.stream)
+    assert "StreamEventKind.USAGE" in source
+
+
+def test_stream_event_kind_has_stream_start_and_provider_event():
+    """StreamEventKind includes STREAM_START and PROVIDER_EVENT per spec Section 3.14."""
+    from attractor.llm.types import StreamEventKind
+    assert hasattr(StreamEventKind, "STREAM_START")
+    assert hasattr(StreamEventKind, "PROVIDER_EVENT")
+    assert StreamEventKind.STREAM_START == "stream_start"
+    assert StreamEventKind.PROVIDER_EVENT == "provider_event"
+
+
+def test_generate_result_has_output_field():
+    """GenerateResult has an output field for generate_object() use."""
+    from attractor.llm.high_level import GenerateResult
+    from attractor.llm.types import Response
+    r = Response(content=[], usage=Usage())
+    gr = GenerateResult(response=r, output={"name": "Alice", "age": 30})
+    assert gr.output == {"name": "Alice", "age": 30}
+    assert gr.text == ""

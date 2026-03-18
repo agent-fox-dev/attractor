@@ -434,11 +434,22 @@ class Session:
         """Signal the loop to abort after the current step."""
         self.abort_signaled = True
         self.state = SessionState.CLOSED
+        # Clean up active subagents
+        for agent in list(self.subagents.values()):
+            if hasattr(agent, 'abort'):
+                agent.abort()
 
     async def close(self) -> None:
         """Close the session and clean up resources."""
         self.abort_signaled = True
         self.state = SessionState.CLOSED
+        # Clean up active subagents
+        for agent in list(self.subagents.values()):
+            if hasattr(agent, 'close'):
+                await agent.close()
+            elif hasattr(agent, 'abort'):
+                agent.abort()
+        self.subagents.clear()
         self.execution_env.cleanup()
         self._emit(EventKind.SESSION_END, state="closed")
 
